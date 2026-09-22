@@ -412,7 +412,7 @@ function pickRandomColor() {
 
 function loadUserFromStorage() {
   try {
-    const stored = localStorage.getItem('qaRosterUser');
+    const stored = sessionStorage.getItem('qaRosterUser');
     if (stored) {
       currentUser = JSON.parse(stored);
       if (currentUser && currentUser.id && currentUser.name) return true;
@@ -422,7 +422,7 @@ function loadUserFromStorage() {
 }
 
 function saveUserToStorage() {
-  if (currentUser) localStorage.setItem('qaRosterUser', JSON.stringify(currentUser));
+  if (currentUser) sessionStorage.setItem('qaRosterUser', JSON.stringify(currentUser));
 }
 
 function showNameModal() {
