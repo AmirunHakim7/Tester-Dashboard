@@ -6,16 +6,36 @@
 <title>QA Weekly Roster Dashboard</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="dashboard">
+
+  <!-- BANNER HARI INI -->
+  <div class="today-banner" id="todayBanner" style="display:none;">
+    <i class="fas fa-calendar-day"></i> Hari ini: <strong id="todayLabel">—</strong>
+  </div>
+
   <header class="header">
     <div>
       <h1><i class="fas fa-calendar-week"></i> QA Tester Weekly Roster</h1>
-      <p class="subhead">Update task harian — office, WFH, AL, MC, cuti, public holiday</p>
+      <p class="subhead">Update Task Daily</p>
     </div>
     <div class="header-right">
       <span class="sync-badge" id="syncBadge"><i class="fas fa-circle"></i> Menyambung...</span>
+      <div id="usersOnlinePanel" class="users-online"></div>
+      <button id="analyticsBtn" class="btn-analytics"><i class="fas fa-chart-line"></i> Analytics</button>
+      <div class="search-box">
+        <i class="fas fa-search"></i>
+        <input type="text" id="searchInput" placeholder="Cari tester...">
+        <button id="clearSearchBtn" class="clear-search" style="display:none;" title="Clear search">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <button id="archiveBtn" class="btn-primary-outline" title="Auto-archive data lebih dari 4 minggu"><i class="fas fa-box-archive"></i> Archive</button>
+      <button id="trashBtn" class="btn-primary-outline" title="Lihat item yang dipadam"><i class="fas fa-trash-can"></i> Trash</button>
+      <button id="screenshotBtn" class="btn-primary-outline"><i class="fas fa-camera"></i> Screenshot</button>
       <button id="addTesterBtn" class="btn-primary-outline"><i class="fas fa-user-plus"></i> Tambah Tester</button>
       <button id="clearAllBtn" class="btn-danger-outline"><i class="fas fa-trash-alt"></i> Clear Minggu</button>
     </div>
@@ -27,7 +47,41 @@
       <span class="week-badge" id="weekBadge">Week —</span>
       <button id="todayBtn" class="today-btn">Hari Ini</button>
     </div>
-    <button id="nextWeekBtn" class="nav-btn">Minggu Depan <i class="fas fa-chevron-right"></i></button>
+    <div style="display:flex; gap:.5rem;">
+      <button id="nextWeekBtn" class="nav-btn">Minggu Depan <i class="fas fa-chevron-right"></i></button>
+      <button id="copyPrevWeekBtn" class="btn-copy"><i class="fas fa-copy"></i> Copy Minggu Lepas</button>
+    </div>
+  </div>
+
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card">
+      <i class="fas fa-users" style="color:#3b82f6;"></i>
+      <div><span class="stat-number" id="statTester">0</span><span class="stat-label">Jumlah Tester</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-building" style="color:#10b981;"></i>
+      <div><span class="stat-number" id="statOffice">0</span><span class="stat-label">Office</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-house-laptop" style="color:#3b82f6;"></i>
+      <div><span class="stat-number" id="statWfh">0</span><span class="stat-label">WFH</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-plane-departure" style="color:#f59e0b;"></i>
+      <div><span class="stat-number" id="statCuti">0</span><span class="stat-label">Cuti / AL</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-notes-medical" style="color:#ef4444;"></i>
+      <div><span class="stat-number" id="statMc">0</span><span class="stat-label">MC</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-clipboard-list" style="color:#8b5cf6;"></i>
+      <div><span class="stat-number" id="statTask">0</span><span class="stat-label">Outstation</span></div>
+    </div>
+    <div class="stat-card">
+      <i class="fas fa-circle-question" style="color:#94a3b8;"></i>
+      <div><span class="stat-number" id="statKosong">0</span><span class="stat-label">Kosong</span></div>
+    </div>
   </div>
 
   <div class="legend">
@@ -36,11 +90,14 @@
     <span><span class="dot al"></span> AL (Cuti)</span>
     <span><span class="dot mc"></span> MC</span>
     <span><span class="dot public"></span> Public Holiday</span>
-    <span><span class="dot task"></span> Task Khusus</span>
+    <span><span class="dot task"></span> Outstation</span>
     <span><span class="dot weekend"></span> Weekend</span>
+    <span style="margin-left:auto; color:#8b5cf6; font-weight:600;">
+      <i class="fas fa-info-circle"></i> Ctrl+Click = select | Right click = menu
+    </span>
   </div>
 
-  <div class="card table-card">
+  <div class="card table-card" id="tableCard">
     <div class="table-wrapper">
       <table id="rosterTable">
         <thead id="rosterHead"></thead>
@@ -50,7 +107,7 @@
   </div>
 
   <footer class="footer">
-    <p>Klik mana-mana sel untuk edit. Klik nama tester untuk tukar nama atau padam.</p>
+    <p>Klik mana-mana sel untuk edit. Ctrl+Click untuk select multiple. Right click untuk menu.</p>
   </footer>
 </div>
 
@@ -60,7 +117,7 @@
     <h3 id="modalTitle">Edit Sel</h3>
     <div class="form-group">
       <label>Teks / Tugasan</label>
-      <input type="text" id="modalText" placeholder="Contoh: Office, WFH, SKVE - SK22 ANPR">
+      <input type="text" id="modalText" placeholder="Contoh: Office">
     </div>
     <div class="form-group">
       <label>Jenis (warna)</label>
@@ -71,7 +128,7 @@
         <option value="al">AL (Cuti)</option>
         <option value="mc">MC</option>
         <option value="public">Public Holiday</option>
-        <option value="task">Task Khusus</option>
+        <option value="task">Outstation</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -103,6 +160,93 @@
       <button id="testerSave" class="btn-primary"><i class="fas fa-save"></i> Simpan</button>
     </div>
   </div>
+</div>
+
+<!-- MODAL PICK NAME -->
+<div id="nameModal" class="modal-overlay">
+  <div class="modal">
+    <h3><i class="fas fa-user-circle"></i> Siapa Anda?</h3>
+    <p style="color:#64748b; font-size:.85rem; margin-bottom:1rem;">
+      Nama ni akan dipaparkan kepada team lain bila anda edit sel.
+    </p>
+    <div class="form-group">
+      <label>Nama Anda</label>
+      <input type="text" id="displayName" placeholder="Contoh: Amirun" maxlength="20">
+    </div>
+    <div class="form-group">
+      <label>Pilih Warna</label>
+      <div id="colorPicker" class="color-picker"></div>
+    </div>
+    <div class="modal-actions">
+      <button id="nameSaveBtn" class="btn-primary"><i class="fas fa-check"></i> Mula</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ANALYTICS -->
+<div id="analyticsModal" class="modal-overlay">
+  <div class="modal analytics-modal">
+    <div class="analytics-header">
+      <div>
+        <h3 style="margin:0;"><i class="fas fa-chart-line"></i> Analytics Dashboard</h3>
+        <p style="margin:.2rem 0 0; color:#64748b; font-size:.8rem;">
+          Week <span id="analyticsWeek">—</span> · <span id="analyticsRange">—</span>
+        </p>
+      </div>
+      <button id="analyticsCloseBtn" class="ai-close" style="background:#f1f5f9; color:#64748b;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div class="analytics-grid">
+      <div class="chart-card">
+        <div class="chart-title">
+          <i class="fas fa-chart-bar" style="color:#3b82f6;"></i>
+          <span>Jenis Task Minggu Ni</span>
+        </div>
+        <div class="chart-canvas-wrapper">
+          <canvas id="chartBar"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <i class="fas fa-chart-pie" style="color:#8b5cf6;"></i>
+          <span>Distribution</span>
+        </div>
+        <div class="chart-canvas-wrapper">
+          <canvas id="chartDoughnut"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card chart-card-wide">
+        <div class="chart-title">
+          <i class="fas fa-chart-line" style="color:#10b981;"></i>
+          <span>Trend 4 Minggu</span>
+        </div>
+        <div class="chart-canvas-wrapper">
+          <canvas id="chartLine"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONTEXT MENU -->
+<div id="contextMenu" class="context-menu">
+  <button id="ctxCopy" class="ctx-item"><i class="fas fa-copy"></i> Copy <span class="ctx-shortcut">Ctrl+C</span></button>
+  <button id="ctxPaste" class="ctx-item"><i class="fas fa-paste"></i> Paste <span class="ctx-shortcut">Ctrl+V</span></button>
+  <button id="ctxDuplicate" class="ctx-item"><i class="fas fa-clone"></i> Duplicate ke Sel Sebelah</button>
+  <div class="ctx-divider"></div>
+  <button id="ctxClear" class="ctx-item ctx-danger"><i class="fas fa-eraser"></i> Clear Sel</button>
+</div>
+
+<!-- BULK EDIT BAR -->
+<div id="bulkBar" class="bulk-bar">
+  <span class="bulk-info"><i class="fas fa-check-square"></i> <strong id="bulkCount">0</strong> sel dipilih</span>
+  <button id="bulkEditBtn" class="btn-primary"><i class="fas fa-pen"></i> Edit Sekali Gus</button>
+  <button id="bulkClearBtn" class="btn-secondary"><i class="fas fa-eraser"></i> Clear</button>
+  <button id="bulkCancelBtn" class="btn-secondary"><i class="fas fa-times"></i> Batal</button>
 </div>
 
 <!-- Firebase SDK -->
