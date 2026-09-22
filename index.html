@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Weekly Roster Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+<div class="dashboard">
+  <header class="header">
+    <div>
+      <h1><i class="fas fa-calendar-week"></i> QA Tester Weekly Roster</h1>
+      <p class="subhead">Update task harian — office, WFH, AL, MC, cuti, public holiday</p>
+    </div>
+    <div class="header-right">
+      <span class="sync-badge" id="syncBadge"><i class="fas fa-circle"></i> Menyambung...</span>
+      <button id="addTesterBtn" class="btn-primary-outline"><i class="fas fa-user-plus"></i> Tambah Tester</button>
+      <button id="clearAllBtn" class="btn-danger-outline"><i class="fas fa-trash-alt"></i> Clear Minggu</button>
+    </div>
+  </header>
+
+  <div class="week-nav">
+    <button id="prevWeekBtn" class="nav-btn"><i class="fas fa-chevron-left"></i> Minggu Lepas</button>
+    <div class="week-info">
+      <span class="week-badge" id="weekBadge">Week —</span>
+      <button id="todayBtn" class="today-btn">Hari Ini</button>
+    </div>
+    <button id="nextWeekBtn" class="nav-btn">Minggu Depan <i class="fas fa-chevron-right"></i></button>
+  </div>
+
+  <div class="legend">
+    <span><span class="dot office"></span> Office</span>
+    <span><span class="dot wfh"></span> WFH</span>
+    <span><span class="dot al"></span> AL (Cuti)</span>
+    <span><span class="dot mc"></span> MC</span>
+    <span><span class="dot public"></span> Public Holiday</span>
+    <span><span class="dot task"></span> Task Khusus</span>
+    <span><span class="dot weekend"></span> Weekend</span>
+  </div>
+
+  <div class="card table-card">
+    <div class="table-wrapper">
+      <table id="rosterTable">
+        <thead id="rosterHead"></thead>
+        <tbody id="rosterBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Klik mana-mana sel untuk edit. Klik nama tester untuk tukar nama atau padam.</p>
+  </footer>
+</div>
+
+<!-- MODAL EDIT SEL -->
+<div id="modal" class="modal-overlay">
+  <div class="modal">
+    <h3 id="modalTitle">Edit Sel</h3>
+    <div class="form-group">
+      <label>Teks / Tugasan</label>
+      <input type="text" id="modalText" placeholder="Contoh: Office, WFH, SKVE - SK22 ANPR">
+    </div>
+    <div class="form-group">
+      <label>Jenis (warna)</label>
+      <select id="modalType">
+        <option value="">— Kosong —</option>
+        <option value="office">Office</option>
+        <option value="wfh">WFH</option>
+        <option value="al">AL (Cuti)</option>
+        <option value="mc">MC</option>
+        <option value="public">Public Holiday</option>
+        <option value="task">Task Khusus</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button id="modalCancel" class="btn-secondary">Batal</button>
+      <button id="modalSave" class="btn-primary"><i class="fas fa-save"></i> Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TAMBAH / EDIT TESTER -->
+<div id="testerModal" class="modal-overlay">
+  <div class="modal">
+    <h3 id="testerModalTitle">Tambah Tester</h3>
+    <div class="form-group">
+      <label>Nama Penuh</label>
+      <input type="text" id="testerName" placeholder="Contoh: Ahmad Bin Ali">
+    </div>
+    <div class="form-group">
+      <label>No.</label>
+      <input type="number" id="testerNo" placeholder="Contoh: 10">
+    </div>
+    <div class="form-group">
+      <label>Unit</label>
+      <input type="text" id="testerUnit" placeholder="Contoh: TESTING UNIT" value="TESTING UNIT">
+    </div>
+    <div class="modal-actions">
+      <button id="testerCancel" class="btn-secondary">Batal</button>
+      <button id="testerDelete" class="btn-danger" style="display:none;">Padam</button>
+      <button id="testerSave" class="btn-primary"><i class="fas fa-save"></i> Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { 
+    getFirestore, collection, doc, setDoc, deleteDoc, getDocs, onSnapshot 
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDUrb05rTChOo-8vvA54W-zx87dhyIxJA",
+    authDomain: "qa-roster.firebaseapp.com",
+    projectId: "qa-roster",
+    storageBucket: "qa-roster.firebasestorage.app",
+    messagingSenderId: "755947331217",
+    appId: "1:755947331217:web:3bb63b460af735deaf6930",
+    measurementId: "G-SV8P7RHS0F"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.FB = { db, collection, doc, setDoc, deleteDoc, getDocs, onSnapshot };
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+<script src="script.js"></script>
+</body>
+</html>
