@@ -2,7 +2,7 @@
 <html lang="ms">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>QA Weekly Roster Dashboard</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -24,7 +24,6 @@
     </div>
     <div class="header-right">
       <span class="sync-badge" id="syncBadge"><i class="fas fa-circle"></i> Menyambung...</span>
-      <div id="usersOnlinePanel" class="users-online"></div>
       <button id="analyticsBtn" class="btn-analytics"><i class="fas fa-chart-line"></i> Analytics</button>
       <div class="search-box">
         <i class="fas fa-search"></i>
@@ -76,7 +75,7 @@
     </div>
     <div class="stat-card">
       <i class="fas fa-clipboard-list" style="color:#8b5cf6;"></i>
-      <div><span class="stat-number" id="statTask">0</span><span class="stat-label">Outstation</span></div>
+      <div><span class="stat-number" id="statTask">0</span><span class="stat-label">Site</span></div>
     </div>
     <div class="stat-card">
       <i class="fas fa-circle-question" style="color:#94a3b8;"></i>
@@ -90,10 +89,10 @@
     <span><span class="dot al"></span> AL (Cuti)</span>
     <span><span class="dot mc"></span> MC</span>
     <span><span class="dot public"></span> Public Holiday</span>
-    <span><span class="dot task"></span> Outstation</span>
+    <span><span class="dot task"></span> Site</span>
     <span><span class="dot weekend"></span> Weekend</span>
     <span style="margin-left:auto; color:#8b5cf6; font-weight:600;">
-      <i class="fas fa-info-circle"></i> Ctrl+Click = select | Right click = menu
+      <i class="fas fa-info-circle"></i> Klik 2x untuk edit | Ctrl+Click untuk select
     </span>
   </div>
 
@@ -107,7 +106,7 @@
   </div>
 
   <footer class="footer">
-    <p>Klik mana-mana sel untuk edit. Ctrl+Click untuk select multiple. Right click untuk menu.</p>
+    <p>Klik 1x untuk select. Klik 2x untuk edit. Long-press (mobile) untuk menu.</p>
   </footer>
 </div>
 
@@ -128,7 +127,7 @@
         <option value="al">AL (Cuti)</option>
         <option value="mc">MC</option>
         <option value="public">Public Holiday</option>
-        <option value="task">Outstation</option>
+        <option value="task">Site</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -158,27 +157,6 @@
       <button id="testerCancel" class="btn-secondary">Batal</button>
       <button id="testerDelete" class="btn-danger" style="display:none;">Padam</button>
       <button id="testerSave" class="btn-primary"><i class="fas fa-save"></i> Simpan</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL PICK NAME -->
-<div id="nameModal" class="modal-overlay">
-  <div class="modal">
-    <h3><i class="fas fa-user-circle"></i> Siapa Anda?</h3>
-    <p style="color:#64748b; font-size:.85rem; margin-bottom:1rem;">
-      Nama ni akan dipaparkan kepada team lain bila anda edit sel.
-    </p>
-    <div class="form-group">
-      <label>Nama Anda</label>
-      <input type="text" id="displayName" placeholder="Contoh: Amirun" maxlength="20">
-    </div>
-    <div class="form-group">
-      <label>Pilih Warna</label>
-      <div id="colorPicker" class="color-picker"></div>
-    </div>
-    <div class="modal-actions">
-      <button id="nameSaveBtn" class="btn-primary"><i class="fas fa-check"></i> Mula</button>
     </div>
   </div>
 </div>
@@ -234,8 +212,9 @@
 
 <!-- CONTEXT MENU -->
 <div id="contextMenu" class="context-menu">
-  <button id="ctxCopy" class="ctx-item"><i class="fas fa-copy"></i> Copy <span class="ctx-shortcut">Ctrl+C</span></button>
-  <button id="ctxPaste" class="ctx-item"><i class="fas fa-paste"></i> Paste <span class="ctx-shortcut">Ctrl+V</span></button>
+  <button id="ctxCopy" class="ctx-item"><i class="fas fa-copy"></i> Copy Sel</button>
+  <button id="ctxPaste" class="ctx-item"><i class="fas fa-paste"></i> Paste ke Sel</button>
+  <div class="ctx-divider"></div>
   <button id="ctxDuplicate" class="ctx-item"><i class="fas fa-clone"></i> Duplicate ke Sel Sebelah</button>
   <div class="ctx-divider"></div>
   <button id="ctxClear" class="ctx-item ctx-danger"><i class="fas fa-eraser"></i> Clear Sel</button>

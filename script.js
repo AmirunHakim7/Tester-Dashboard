@@ -1,4 +1,4 @@
-// script.js — Full version (tanpa phone field)
+// script.js — Full version (tanpa public holiday auto-fetch)
 // ═══════════════════════════════════════════════════════
 
 const DEFAULT_TESTERS = [
@@ -25,21 +25,19 @@ let editingTesterNo = null;
 let FB = null;
 let searchQuery = '';
 
-// PRESENCE
-const AVAILABLE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
-let currentUser = null;
-let onlineUsers = [];
-let lastHoverKey = null;
-let hoverThrottleTimer = null;
-let presenceListener = null;
-let heartbeatTimer = null;
-
 // CHART
 let charts = { bar: null, doughnut: null, line: null };
 const CHART_COLORS = {
   office: '#10b981', wfh: '#3b82f6', al: '#f59e0b',
   mc: '#ef4444', task: '#8b5cf6', public: '#eab308', kosong: '#cbd5e1'
 };
+
+// KEYBOARD NAVIGATION
+let focusedCell = null;
+
+// MOBILE DETECTION
+const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                  || window.matchMedia('(max-width: 768px)').matches;
 
 // TARIKH HELPERS
 function toLocalDateStr(d) {
@@ -401,176 +399,6 @@ function showConfirmModal(title, message, onConfirm) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
-// PRESENCE
-function generateUserId() {
-  return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function pickRandomColor() {
-  return AVAILABLE_COLORS[Math.floor(Math.random() * AVAILABLE_COLORS.length)];
-}
-
-function loadUserFromStorage() {
-  try {
-    const stored = sessionStorage.getItem('qaRosterUser');
-    if (stored) {
-      currentUser = JSON.parse(stored);
-      if (currentUser && currentUser.id && currentUser.name) return true;
-    }
-  } catch (e) {}
-  return false;
-}
-
-function saveUserToStorage() {
-  if (currentUser) sessionStorage.setItem('qaRosterUser', JSON.stringify(currentUser));
-}
-
-function showNameModal() {
-  const modal = document.getElementById('nameModal');
-  const nameInput = document.getElementById('displayName');
-  const colorPicker = document.getElementById('colorPicker');
-  const tempId = generateUserId();
-  let selectedColor = pickRandomColor();
-
-  colorPicker.innerHTML = AVAILABLE_COLORS.map(c =>
-    `<div class="color-option ${c === selectedColor ? 'selected' : ''}" style="background:${c}; color:${c};" data-color="${c}"></div>`
-  ).join('');
-
-  colorPicker.querySelectorAll('.color-option').forEach(el => {
-    el.addEventListener('click', () => {
-      colorPicker.querySelectorAll('.color-option').forEach(x => x.classList.remove('selected'));
-      el.classList.add('selected');
-      selectedColor = el.dataset.color;
-    });
-  });
-
-  modal.classList.add('active');
-  setTimeout(() => nameInput.focus(), 100);
-
-  document.getElementById('nameSaveBtn').onclick = () => {
-    const name = nameInput.value.trim();
-    if (!name) { alert('Sila isi nama.'); return; }
-    if (name.length > 20) { alert('Nama terlalu panjang.'); return; }
-    currentUser = { id: tempId, name: name, color: selectedColor };
-    saveUserToStorage();
-    modal.classList.remove('active');
-    startPresence();
-    updateUsersOnlinePanel();
-  };
-
-  nameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') document.getElementById('nameSaveBtn').click();
-  });
-}
-
-async function updateMyPresence(cellKey = null) {
-  if (!currentUser || !FB) return;
-  const { db, doc, setDoc } = FB;
-  try {
-    await setDoc(doc(db, 'presence', currentUser.id), {
-      id: currentUser.id,
-      name: currentUser.name,
-      color: currentUser.color,
-      cellKey: cellKey || '',
-      lastSeen: Date.now()
-    });
-  } catch (err) {}
-}
-
-async function clearMyPresence() {
-  if (!currentUser || !FB) return;
-  const { db, doc, deleteDoc } = FB;
-  try { await deleteDoc(doc(db, 'presence', currentUser.id)); } catch (err) {}
-}
-
-function listenPresence() {
-  if (!FB) return;
-  const { db, collection, onSnapshot } = FB;
-  presenceListener = onSnapshot(collection(db, 'presence'), (snap) => {
-    const now = Date.now();
-    const allUsers = [];
-    snap.forEach(d => {
-      const data = d.data();
-      if (data.id === currentUser?.id) return;
-      if (now - data.lastSeen > 30000) return;
-      allUsers.push(data);
-    });
-    onlineUsers = allUsers;
-    renderPresenceCursors();
-    updateUsersOnlinePanel();
-  }, (err) => {});
-}
-
-function renderPresenceCursors() {
-  document.querySelectorAll('.presence-cursor').forEach(el => el.remove());
-  document.querySelectorAll('td.cell.has-presence').forEach(el => {
-    el.classList.remove('has-presence');
-    el.style.removeProperty('--presence-color');
-  });
-  onlineUsers.forEach(user => {
-    if (!user.cellKey) return;
-    const [no, dateStr] = user.cellKey.split('|');
-    const cell = document.querySelector(`td.cell[data-no="${no}"][data-date="${dateStr}"]`);
-    if (!cell) return;
-    cell.classList.add('has-presence');
-    cell.style.setProperty('--presence-color', user.color);
-    const cursor = document.createElement('div');
-    cursor.className = 'presence-cursor';
-    cursor.style.background = user.color;
-    cursor.innerHTML = `<i class="fas fa-pencil"></i>${user.name}`;
-    cell.appendChild(cursor);
-  });
-}
-
-function updateUsersOnlinePanel() {
-  const panel = document.getElementById('usersOnlinePanel');
-  if (!panel) return;
-  if (onlineUsers.length === 0) {
-    panel.innerHTML = `<span class="users-online-empty">Hanya anda online</span>`;
-    return;
-  }
-  const avatars = onlineUsers.slice(0, 5).map(u =>
-    `<div class="user-avatar" style="background:${u.color}" title="${u.name}">${u.name.charAt(0).toUpperCase()}</div>`
-  ).join('');
-  const more = onlineUsers.length > 5 ? `<span style="margin-left:.3rem;">+${onlineUsers.length - 5}</span>` : '';
-  panel.innerHTML = `<span style="margin-right:.3rem; color:#94a3b8; font-size:.7rem;">${onlineUsers.length} online:</span>${avatars}${more}`;
-}
-
-function attachHoverPresence() {
-  document.querySelectorAll('td.cell').forEach(cell => {
-    cell.addEventListener('mouseenter', () => {
-      if (!currentUser) return;
-      const no = cell.dataset.no;
-      const dateStr = cell.dataset.date;
-      const k = `${no}|${dateStr}`;
-      if (k === lastHoverKey) return;
-      lastHoverKey = k;
-      if (hoverThrottleTimer) return;
-      hoverThrottleTimer = setTimeout(() => {
-        hoverThrottleTimer = null;
-        updateMyPresence(k);
-      }, 300);
-    });
-  });
-}
-
-function startHeartbeat() {
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
-  heartbeatTimer = setInterval(() => {
-    if (currentUser) updateMyPresence(lastHoverKey || '');
-  }, 10000);
-}
-
-function startPresence() {
-  listenPresence();
-  startHeartbeat();
-  updateMyPresence('');
-}
-
-window.addEventListener('beforeunload', () => {
-  if (currentUser && FB) clearMyPresence();
-});
-
 // ANALYTICS
 function kiraStatistikMinggu(monday) {
   const days = getWeekDates(monday);
@@ -613,7 +441,7 @@ function renderAnalytics() {
   charts.bar = new Chart(document.getElementById('chartBar').getContext('2d'), {
     type: 'bar',
     data: {
-      labels: ['🏢 Office', '🏠 WFH', '✈️ Cuti', '📝 MC', '📅 Task'],
+      labels: ['🏢 Office', '🏠 WFH', '✈️ Cuti', '📝 MC', '🛣️ Site'],
       datasets: [{
         data: [stats.office, stats.wfh, stats.al, stats.mc, stats.task],
         backgroundColor: [CHART_COLORS.office, CHART_COLORS.wfh, CHART_COLORS.al, CHART_COLORS.mc, CHART_COLORS.task],
@@ -640,7 +468,7 @@ function renderAnalytics() {
     { label: 'WFH', value: stats.wfh, color: CHART_COLORS.wfh },
     { label: 'Cuti', value: stats.al, color: CHART_COLORS.al },
     { label: 'MC', value: stats.mc, color: CHART_COLORS.mc },
-    { label: 'Task', value: stats.task, color: CHART_COLORS.task }
+    { label: 'Site', value: stats.task, color: CHART_COLORS.task }
   ].filter(x => x.value > 0);
 
   charts.doughnut = new Chart(document.getElementById('chartDoughnut').getContext('2d'), {
@@ -691,7 +519,7 @@ function renderAnalytics() {
       datasets: [
         { label: '🏢 Office', data: officeData, borderColor: CHART_COLORS.office, backgroundColor: 'rgba(16,185,129,.1)', tension: 0.4, fill: true, borderWidth: 3, pointRadius: 6, pointBackgroundColor: '#fff', pointBorderColor: CHART_COLORS.office, pointBorderWidth: 3, pointHoverRadius: 8 },
         { label: '🏠 WFH', data: wfhData, borderColor: CHART_COLORS.wfh, backgroundColor: 'rgba(59,130,246,.1)', tension: 0.4, fill: true, borderWidth: 3, pointRadius: 6, pointBackgroundColor: '#fff', pointBorderColor: CHART_COLORS.wfh, pointBorderWidth: 3, pointHoverRadius: 8 },
-        { label: '📅 Task', data: taskData, borderColor: CHART_COLORS.task, backgroundColor: 'rgba(139,92,246,.1)', tension: 0.4, fill: true, borderWidth: 3, pointRadius: 6, pointBackgroundColor: '#fff', pointBorderColor: CHART_COLORS.task, pointBorderWidth: 3, pointHoverRadius: 8 }
+        { label: '🛣️ Site', data: taskData, borderColor: CHART_COLORS.task, backgroundColor: 'rgba(139,92,246,.1)', tension: 0.4, fill: true, borderWidth: 3, pointRadius: 6, pointBackgroundColor: '#fff', pointBorderColor: CHART_COLORS.task, pointBorderWidth: 3, pointHoverRadius: 8 }
       ]
     },
     options: {
@@ -738,7 +566,7 @@ function getFilteredTesters() {
   return testers.filter(t => t.name.toLowerCase().includes(searchQuery));
 }
 
-// STATISTIK (header cards)
+// STATISTIK
 function kiraStatistik(days) {
   const stats = { tester: testers.length, office: 0, wfh: 0, al: 0, mc: 0, task: 0, public: 0, kosong: 0 };
   testers.forEach(t => {
@@ -890,8 +718,7 @@ function renderBody(days) {
 
   attachCellEvents();
   refreshSelectionAfterRender();
-  attachHoverPresence();
-  renderPresenceCursors();
+  attachKeyboardNav();
 }
 
 function renderAll() {
@@ -988,7 +815,7 @@ modalText.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('modalSave').click();
 });
 
-// MODAL: TESTER (tanpa phone)
+// MODAL: TESTER
 const testerModal = document.getElementById('testerModal');
 const testerName = document.getElementById('testerName');
 const testerNo = document.getElementById('testerNo');
@@ -1297,7 +1124,7 @@ function clearSelection() {
 }
 function updateBulkCount() {
   bulkCount.textContent = selectedCells.size;
-  if (selectedCells.size > 0) bulkBar.classList.add('active');
+  if (selectedCells.size >= 2) bulkBar.classList.add('active');
   else bulkBar.classList.remove('active');
 }
 function toggleCellSelection(cell, forceAdd = false) {
@@ -1329,33 +1156,65 @@ function refreshSelectionAfterRender() {
 
 function attachCellEvents() {
   document.querySelectorAll('td.cell').forEach(cell => {
-    cell.addEventListener('click', (e) => {
-      if (e.ctrlKey || e.metaKey) {
+    if (IS_MOBILE) {
+      cell.addEventListener('click', (e) => {
         e.preventDefault(); e.stopPropagation();
-        toggleCellSelection(cell);
+        setFocusedCell(cell);
         lastClickedCell = cell;
-        return;
-      }
-      if (e.shiftKey && lastClickedCell) {
+        openModal(cell);
+      });
+
+      let longPressTimer = null;
+      cell.addEventListener('touchstart', (e) => {
+        longPressTimer = setTimeout(() => {
+          e.preventDefault();
+          lastClickedCell = cell;
+          setFocusedCell(cell);
+          const touch = e.touches[0] || e.changedTouches[0];
+          if (touch) showContextMenu(touch.pageX, touch.pageY, cell);
+          if (navigator.vibrate) navigator.vibrate(50);
+        }, 500);
+      }, { passive: false });
+      cell.addEventListener('touchend', () => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      });
+      cell.addEventListener('touchmove', () => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      });
+    } else {
+      cell.addEventListener('click', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault(); e.stopPropagation();
+          toggleCellSelection(cell);
+          lastClickedCell = cell;
+          setFocusedCell(cell);
+          return;
+        }
+        if (e.shiftKey && lastClickedCell) {
+          e.preventDefault(); e.stopPropagation();
+          rangeSelect(lastClickedCell, cell);
+          setFocusedCell(cell);
+          return;
+        }
         e.preventDefault(); e.stopPropagation();
-        rangeSelect(lastClickedCell, cell);
-        return;
-      }
-      if (selectedCells.size > 0) {
-        e.preventDefault(); e.stopPropagation();
-        toggleCellSelection(cell, true);
+        clearSelection();
+        setFocusedCell(cell);
         lastClickedCell = cell;
-        return;
-      }
-      openModal(cell);
-      lastClickedCell = cell;
-    });
-    cell.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      if (!selectedCells.has(cell)) clearSelection();
-      lastClickedCell = cell;
-      showContextMenu(e.pageX, e.pageY, cell);
-    });
+      });
+
+      cell.addEventListener('dblclick', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        openModal(cell);
+      });
+
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (!selectedCells.has(cell)) clearSelection();
+        lastClickedCell = cell;
+        setFocusedCell(cell);
+        showContextMenu(e.pageX, e.pageY, cell);
+      });
+    }
   });
 }
 
@@ -1468,24 +1327,6 @@ document.getElementById('ctxClear').addEventListener('click', async () => {
   hideContextMenu();
 });
 
-document.addEventListener('keydown', async (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-    const cell = selectedCells.size > 0 ? Array.from(selectedCells)[0] : lastClickedCell;
-    if (cell) { e.preventDefault(); copyCell(cell); }
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-    e.preventDefault();
-    const targets = selectedCells.size > 0 ? Array.from(selectedCells) : (lastClickedCell ? [lastClickedCell] : []);
-    if (targets.length > 0 && clipboard) await pasteToCells(targets);
-  }
-  if (e.key === 'Escape') { clearSelection(); hideContextMenu(); }
-  if (e.key === 'Enter' && selectedCells.size > 0) {
-    e.preventDefault();
-    openBulkEditModal();
-  }
-});
-
 const bulkEditBtn = document.getElementById('bulkEditBtn');
 const bulkClearBtn = document.getElementById('bulkClearBtn');
 const bulkCancelBtn = document.getElementById('bulkCancelBtn');
@@ -1523,7 +1364,7 @@ function openBulkEditModal() {
       <h3><i class="fas fa-pen"></i> Edit ${totalCells} Sel</h3>
       <div class="copy-warning">Semua <strong>${totalCells} sel</strong> akan ditukar.</div>
       <div class="form-group"><label>Teks / Tugasan</label>
-        <input type="text" id="bulkText" placeholder="Contoh: Office, WFH, LL25">
+        <input type="text" id="bulkText" placeholder="Contoh: Office, WFH">
       </div>
       <div class="form-group"><label>Jenis (warna)</label>
         <select id="bulkType">
@@ -1533,7 +1374,7 @@ function openBulkEditModal() {
           <option value="al">AL (Cuti)</option>
           <option value="mc">MC</option>
           <option value="public">Public Holiday</option>
-          <option value="task">Outstation</option>
+          <option value="task">Site</option>
         </select>
       </div>
       <div class="modal-actions">
@@ -1577,9 +1418,273 @@ function openBulkEditModal() {
   });
 }
 
+// KEYBOARD NAVIGATION
+function setFocusedCell(cell) {
+  document.querySelectorAll('td.cell.focused').forEach(c => c.classList.remove('focused'));
+  if (cell) {
+    focusedCell = cell;
+    cell.classList.add('focused');
+    cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  } else {
+    focusedCell = null;
+  }
+}
+
+function getAllCells() {
+  return Array.from(document.querySelectorAll('td.cell'));
+}
+
+function getCellPosition(cell) {
+  const allCells = getAllCells();
+  if (!allCells.includes(cell)) return null;
+  const testerNo = cell.dataset.no;
+  const dateStr = cell.dataset.date;
+  const rows = [...new Set(allCells.map(c => c.dataset.no))];
+  const cols = [...new Set(allCells.map(c => c.dataset.date))].sort();
+  const rowIdx = rows.indexOf(testerNo);
+  const colIdx = cols.indexOf(dateStr);
+  return { rowIdx, colIdx, rows, cols, testerNo, dateStr };
+}
+
+function findCellAt(rowIdx, colIdx) {
+  const allCells = getAllCells();
+  if (allCells.length === 0) return null;
+  const rows = [...new Set(allCells.map(c => c.dataset.no))];
+  const cols = [...new Set(allCells.map(c => c.dataset.date))].sort();
+  if (rowIdx < 0 || rowIdx >= rows.length) return null;
+  if (colIdx < 0 || colIdx >= cols.length) return null;
+  const targetTesterNo = rows[rowIdx];
+  const targetDateStr = cols[colIdx];
+  return allCells.find(c => c.dataset.no === targetTesterNo && c.dataset.date === targetDateStr);
+}
+
+function moveFocus(direction) {
+  if (!focusedCell) {
+    const first = getAllCells()[0];
+    if (first) setFocusedCell(first);
+    return;
+  }
+  const pos = getCellPosition(focusedCell);
+  if (!pos) return;
+  let newRow = pos.rowIdx;
+  let newCol = pos.colIdx;
+  switch (direction) {
+    case 'up': newRow--; break;
+    case 'down': newRow++; break;
+    case 'left': newCol--; break;
+    case 'right': newCol++; break;
+    case 'home': newCol = 0; break;
+    case 'end': newCol = pos.cols.length - 1; break;
+  }
+  const targetCell = findCellAt(newRow, newCol);
+  if (targetCell) {
+    setFocusedCell(targetCell);
+    lastClickedCell = targetCell;
+  }
+}
+
+async function clearFocusedCell() {
+  if (!focusedCell) return;
+  const no = focusedCell.dataset.no;
+  const dateStr = focusedCell.dataset.date;
+  const dateEnd = focusedCell.dataset.dateEnd || dateStr;
+  const dates = expandDates(dateStr, dateEnd);
+  try {
+    setSyncBadge('connecting', 'Memadam...');
+    for (const dStr of dates) {
+      await setScheduleCell(key(no, dStr), { text: '', type: '' });
+    }
+    setSyncBadge('online', 'Online');
+  } catch (err) {}
+}
+
+function copyFocusedCell() {
+  if (!focusedCell) return;
+  const no = focusedCell.dataset.no;
+  const dateStr = focusedCell.dataset.date;
+  const data = schedule[key(no, dateStr)] || { text: '', type: '' };
+  clipboard = { text: data.text || '', type: data.type || '' };
+  focusedCell.style.transition = 'none';
+  focusedCell.style.outline = '3px solid #10b981';
+  setTimeout(() => {
+    focusedCell.style.outline = '';
+    focusedCell.style.transition = '';
+  }, 400);
+}
+
+async function pasteToFocusedCell() {
+  if (!focusedCell || !clipboard) return;
+  const no = focusedCell.dataset.no;
+  const dateStr = focusedCell.dataset.date;
+  const dateEnd = focusedCell.dataset.dateEnd || dateStr;
+  const dates = expandDates(dateStr, dateEnd);
+  try {
+    setSyncBadge('connecting', 'Menyimpan...');
+    for (const dStr of dates) {
+      await setScheduleCell(key(no, dStr), clipboard);
+    }
+    setSyncBadge('online', 'Online');
+  } catch (err) {
+    alert('Gagal paste: ' + err.message);
+  }
+}
+
+function editFocusedCell() {
+  if (!focusedCell) return;
+  openModal(focusedCell);
+}
+
+function selectFocusedRow() {
+  if (!focusedCell) return;
+  const no = focusedCell.dataset.no;
+  clearSelection();
+  document.querySelectorAll('td.cell').forEach(cell => {
+    if (cell.dataset.no === no) {
+      selectedCells.add(cell);
+      cell.classList.add('selected');
+    }
+  });
+  updateBulkCount();
+}
+
+function selectFocusedColumn() {
+  if (!focusedCell) return;
+  const dateStr = focusedCell.dataset.date;
+  clearSelection();
+  document.querySelectorAll('td.cell').forEach(cell => {
+    if (cell.dataset.date === dateStr) {
+      selectedCells.add(cell);
+      cell.classList.add('selected');
+    }
+  });
+  updateBulkCount();
+}
+
+function extendSelection(direction) {
+  if (!focusedCell) return;
+  const pos = getCellPosition(focusedCell);
+  if (!pos) return;
+  let newRow = pos.rowIdx;
+  let newCol = pos.colIdx;
+  switch (direction) {
+    case 'up': newRow--; break;
+    case 'down': newRow++; break;
+    case 'left': newCol--; break;
+    case 'right': newCol++; break;
+  }
+  const targetCell = findCellAt(newRow, newCol);
+  if (targetCell) {
+    if (selectedCells.size === 0) {
+      selectedCells.add(focusedCell);
+      focusedCell.classList.add('selected');
+    }
+    if (!selectedCells.has(targetCell)) {
+      selectedCells.add(targetCell);
+      targetCell.classList.add('selected');
+    }
+    setFocusedCell(targetCell);
+    updateBulkCount();
+    lastClickedCell = targetCell;
+  }
+}
+
+function attachKeyboardNav() {
+  if (IS_MOBILE) return;
+  document.querySelectorAll('td.cell').forEach(cell => {
+    cell.setAttribute('tabindex', '0');
+    cell.addEventListener('focus', () => {
+      setFocusedCell(cell);
+      lastClickedCell = cell;
+    });
+  });
+}
+
+function initKeyboardNav() {
+  if (IS_MOBILE) return;
+  document.addEventListener('keydown', async (e) => {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    const activeModal = document.querySelector('.modal-overlay.active');
+    if (activeModal) return;
+    
+    if (!focusedCell) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Tab') {
+        e.preventDefault();
+        const first = getAllCells()[0];
+        if (first) setFocusedCell(first);
+      }
+      return;
+    }
+    
+    const isCtrl = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+    
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (isShift) extendSelection('up'); else moveFocus('up');
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (isShift) extendSelection('down'); else moveFocus('down');
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (isShift) extendSelection('left'); else moveFocus('left');
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (isShift) extendSelection('right'); else moveFocus('right');
+      return;
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (isShift) moveFocus('left'); else moveFocus('right');
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (isShift) moveFocus('up'); else editFocusedCell();
+      return;
+    }
+    if (e.key === 'F2') {
+      e.preventDefault();
+      editFocusedCell();
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      if (isCtrl) { const first = getAllCells()[0]; if (first) setFocusedCell(first); }
+      else moveFocus('home');
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      if (isCtrl) { const all = getAllCells(); if (all.length) setFocusedCell(all[all.length - 1]); }
+      else moveFocus('end');
+      return;
+    }
+    if (isCtrl && e.key === 'c') { e.preventDefault(); copyFocusedCell(); return; }
+    if (isCtrl && e.key === 'v') { e.preventDefault(); await pasteToFocusedCell(); return; }
+    if (isCtrl && e.key === 'x') { e.preventDefault(); copyFocusedCell(); await clearFocusedCell(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); await clearFocusedCell(); return; }
+    if (isCtrl && e.key === 'a') { e.preventDefault(); selectFocusedColumn(); return; }
+    if (isCtrl && e.key === ' ') { e.preventDefault(); selectFocusedRow(); return; }
+    if (e.key === 'Escape') {
+      clearSelection();
+      setFocusedCell(null);
+      hideContextMenu();
+      return;
+    }
+  });
+}
+
 // INIT
 window.addEventListener('firebase-ready', () => {
   console.log('[QA] Firebase ready');
+  console.log('[QA] Mobile mode:', IS_MOBILE);
   FB = window.FB;
   setSyncBadge('connecting', 'Menyambung...');
 
@@ -1597,11 +1702,6 @@ window.addEventListener('firebase-ready', () => {
   // Init Analytics
   initAnalytics();
 
-  // Init presence
-  if (!loadUserFromStorage()) {
-    showNameModal();
-  } else {
-    startPresence();
-    updateUsersOnlinePanel();
-  }
+  // Init Keyboard Navigation
+  initKeyboardNav();
 });
