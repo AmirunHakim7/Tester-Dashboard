@@ -1,4 +1,4 @@
-// script.js — Full version (tanpa public holiday auto-fetch)
+// script.js — Full version dengan "Others" type + Date Picker + Quick Jump + AL/MC Summary + Leave Report + Keyboard Nav FIX + Screenshot Fix
 // ═══════════════════════════════════════════════════════
 
 const DEFAULT_TESTERS = [
@@ -29,7 +29,8 @@ let searchQuery = '';
 let charts = { bar: null, doughnut: null, line: null };
 const CHART_COLORS = {
   office: '#10b981', wfh: '#3b82f6', al: '#f59e0b',
-  mc: '#ef4444', task: '#8b5cf6', public: '#eab308', kosong: '#cbd5e1'
+  mc: '#ef4444', task: '#8b5cf6', public: '#eab308', 
+  others: '#f97316', kosong: '#cbd5e1'
 };
 
 // KEYBOARD NAVIGATION
@@ -38,6 +39,92 @@ let focusedCell = null;
 // MOBILE DETECTION
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
                   || window.matchMedia('(max-width: 768px)').matches;
+
+// ═══════════════════════════════════════════════════════
+// TOAST NOTIFICATION
+// ═══════════════════════════════════════════════════════
+
+function ensureToastContainer() {
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+function showToast(type, title, message, duration = 3000) {
+  const container = ensureToastContainer();
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icons = {
+    success: 'fa-check-circle',
+    error: 'fa-times-circle',
+    warning: 'fa-exclamation-triangle',
+    info: 'fa-info-circle'
+  };
+  
+  toast.innerHTML = `
+    <i class="fas ${icons[type] || 'fa-info-circle'} toast-icon"></i>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      ${message ? `<div class="toast-message">${message}</div>` : ''}
+    </div>
+    <button class="toast-close"><i class="fas fa-times"></i></button>
+  `;
+  
+  container.appendChild(toast);
+  
+  const removeToast = () => {
+    toast.classList.add('removing');
+    setTimeout(() => toast.remove(), 300);
+  };
+  
+  toast.querySelector('.toast-close').addEventListener('click', removeToast);
+  
+  if (duration > 0) {
+    setTimeout(removeToast, duration);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// LOADING SKELETON
+// ═══════════════════════════════════════════════════════
+
+function showSkeletonLoader(days) {
+  const tbody = document.getElementById('rosterBody');
+  if (!tbody) return;
+  
+  const rowCount = 8;
+  let html = '';
+  
+  for (let r = 0; r < rowCount; r++) {
+    html += `<tr>`;
+    if (r === 0) {
+      html += `<td class="col-unit" rowspan="${rowCount}">
+        <div class="col-unit-inner">TESTING UNIT</div>
+      </td>`;
+    }
+    html += `<td class="col-no"><div class="skeleton-no"></div></td>`;
+    html += `<td class="col-name"><div class="skeleton-name"></div></td>`;
+    html += `<td class="col-action"></td>`;
+    
+    days.forEach(d => {
+      const classes = ['cell', 'empty'];
+      if (d.isWeekend) classes.push('weekend');
+      html += `<td class="${classes.join(' ')}">
+        <div class="skeleton-cell"></div>
+      </td>`;
+    });
+    html += `<td class="col-summary al-sum"></td>`;
+    html += `<td class="col-summary mc-sum"></td>`;
+    html += `</tr>`;
+  }
+  
+  tbody.innerHTML = html;
+}
 
 // TARIKH HELPERS
 function toLocalDateStr(d) {
@@ -117,6 +204,44 @@ function isArchivedDate(dateStr) {
   return dateStr < cutoffStr;
 }
 
+// ═══════════════════════════════════════════════════════
+// WEEK NAVIGATION
+// ═══════════════════════════════════════════════════════
+
+function syncWeekPicker() {
+  const picker = document.getElementById('weekPicker');
+  if (!picker) return;
+  picker.value = toLocalDateStr(currentMonday);
+}
+
+function initWeekNavigation() {
+  const picker = document.getElementById('weekPicker');
+  if (!picker) return;
+
+  picker.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (!val) return;
+    const picked = new Date(val + 'T00:00:00');
+    if (isNaN(picked.getTime())) return;
+    currentMonday = getMonday(picked);
+    clearSelection();
+    renderAll();
+    syncWeekPicker();
+  });
+
+  document.querySelectorAll('.quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = parseInt(btn.dataset.jump, 10);
+      if (isNaN(n)) return;
+      currentMonday.setDate(currentMonday.getDate() + (n * 7));
+      currentMonday.setHours(0, 0, 0, 0);
+      clearSelection();
+      renderAll();
+      syncWeekPicker();
+    });
+  });
+}
+
 // FIREBASE
 function setSyncBadge(status, text) {
   const el = document.getElementById('syncBadge');
@@ -193,6 +318,19 @@ async function removeScheduleBulk(keys) {
 }
 
 function key(testerNo, dateStr) { return `${testerNo}|${dateStr}`; }
+
+// AL / MC HELPER
+function kiraALMC(testerNo) {
+  const days = getWeekDates(currentMonday);
+  let al = 0, mc = 0;
+  const alDays = [], mcDays = [];
+  days.forEach(d => {
+    const cell = schedule[key(testerNo, d.dateStr)];
+    if (cell?.type === 'al') { al++; alDays.push(d.name); }
+    else if (cell?.type === 'mc') { mc++; mcDays.push(d.name); }
+  });
+  return { al, mc, alDays, mcDays };
+}
 
 // AUTO-ARCHIVE
 async function autoArchiveOldData() {
@@ -291,13 +429,21 @@ async function restoreFromTrash(trashId) {
       }
     }
     await deleteDoc(doc(db, 'trash', trashId));
-  } catch (err) { alert('Gagal restore: ' + err.message); }
+    showToast('success', 'Berjaya restore');
+  } catch (err) { 
+    showToast('error', 'Gagal restore', err.message);
+  }
 }
 
 async function deletePermanently(trashId) {
   if (!confirm('Padam item ini secara kekal?')) return;
   const { db, doc, deleteDoc } = FB;
-  try { await deleteDoc(doc(db, 'trash', trashId)); } catch (err) {}
+  try { 
+    await deleteDoc(doc(db, 'trash', trashId)); 
+    showToast('success', 'Item dipadam');
+  } catch (err) {
+    showToast('error', 'Gagal padam', err.message);
+  }
 }
 
 async function autoPurgeTrash() {
@@ -399,10 +545,108 @@ function showConfirmModal(title, message, onConfirm) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
+// LEAVE REPORT MODAL — CARD LAYOUT
+function openLeaveReport() {
+  const days = getWeekDates(currentMonday);
+  const weekNum = getWeekNumber(currentMonday);
+  const range = `${formatShortDate(days[0].dateStr)} – ${formatShortDate(days[6].dateStr)}`;
+
+  const rows = [];
+  let totalAL = 0, totalMC = 0;
+  testers.forEach(t => {
+    const { al, mc, alDays, mcDays } = kiraALMC(t.no);
+    if (al > 0 || mc > 0) {
+      rows.push({ tester: t, al, mc, alDays, mcDays });
+      totalAL += al;
+      totalMC += mc;
+    }
+  });
+
+  let bodyHtml = '';
+
+  bodyHtml += `
+    <div class="leave-summary-row">
+      <div class="leave-summary-card al-card">
+        <i class="fas fa-plane-departure"></i>
+        <div>
+          <div class="num">${totalAL}</div>
+          <div class="lbl">Jumlah Hari AL</div>
+        </div>
+      </div>
+      <div class="leave-summary-card mc-card">
+        <i class="fas fa-notes-medical"></i>
+        <div>
+          <div class="num">${totalMC}</div>
+          <div class="lbl">Jumlah Hari MC</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (rows.length === 0) {
+    bodyHtml += `<div class="leave-empty">
+      <i class="fas fa-check-circle"></i>
+      <p>Tiada AL atau MC minggu ini 🎉</p>
+    </div>`;
+  } else {
+    bodyHtml += `<div class="leave-list">`;
+    rows.forEach(r => {
+      const tags = [];
+      r.alDays.forEach(d => {
+        tags.push(`<span class="leave-tag al-tag"><i class="fas fa-plane-departure"></i>${d}</span>`);
+      });
+      r.mcDays.forEach(d => {
+        tags.push(`<span class="leave-tag mc-tag"><i class="fas fa-notes-medical"></i>${d}</span>`);
+      });
+
+      const totalDays = r.al + r.mc;
+      const countClass = r.al > 0 && r.mc === 0 ? 'al-cnt' : (r.mc > 0 && r.al === 0 ? 'mc-cnt' : 'al-cnt');
+      const countLbl = r.al > 0 && r.mc === 0 ? 'Hari AL' : (r.mc > 0 && r.al === 0 ? 'Hari MC' : 'Hari');
+
+      bodyHtml += `
+        <div class="leave-item">
+          <div class="leave-no">${r.tester.no}</div>
+          <div class="leave-info">
+            <div class="leave-name">${r.tester.name}</div>
+            <div class="leave-tags">${tags.join('')}</div>
+          </div>
+          <div class="leave-count ${countClass}">
+            <div class="cnt">${totalDays}</div>
+            <div class="lbl">${countLbl}</div>
+          </div>
+        </div>
+      `;
+    });
+    bodyHtml += `</div>`;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.innerHTML = `
+    <div class="modal leave-modal">
+      <div class="leave-header">
+        <div>
+          <h3 style="margin:0;"><i class="fas fa-clipboard-check"></i> Laporan Cuti & MC</h3>
+          <p style="margin:.2rem 0 0; color:#64748b; font-size:.8rem;">
+            Week ${weekNum} · ${range}
+          </p>
+        </div>
+        <button id="closeLeaveBtn" class="btn-secondary" style="flex:0 0 auto; padding:.5rem 1rem;">
+          <i class="fas fa-times"></i> Tutup
+        </button>
+      </div>
+      <div class="leave-body">${bodyHtml}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('closeLeaveBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
 // ANALYTICS
 function kiraStatistikMinggu(monday) {
   const days = getWeekDates(monday);
-  const stats = { office: 0, wfh: 0, al: 0, mc: 0, task: 0, public: 0, kosong: 0, total: 0 };
+  const stats = { office: 0, wfh: 0, al: 0, mc: 0, task: 0, public: 0, others: 0, kosong: 0, total: 0 };
   testers.forEach(t => {
     days.forEach(d => {
       const k = key(t.no, d.dateStr);
@@ -415,6 +659,7 @@ function kiraStatistikMinggu(monday) {
       else if (type === 'mc') stats.mc++;
       else if (type === 'task') stats.task++;
       else if (type === 'public') stats.public++;
+      else if (type === 'others') stats.others++;
       else if (!d.isWeekend) stats.kosong++;
     });
   });
@@ -441,10 +686,13 @@ function renderAnalytics() {
   charts.bar = new Chart(document.getElementById('chartBar').getContext('2d'), {
     type: 'bar',
     data: {
-      labels: ['🏢 Office', '🏠 WFH', '✈️ Cuti', '📝 MC', '🛣️ Site'],
+      labels: ['🏢 Office', '🏠 WFH', '✈️ Cuti', '📝 MC', '🛣️ Site', '📚 Others'],
       datasets: [{
-        data: [stats.office, stats.wfh, stats.al, stats.mc, stats.task],
-        backgroundColor: [CHART_COLORS.office, CHART_COLORS.wfh, CHART_COLORS.al, CHART_COLORS.mc, CHART_COLORS.task],
+        data: [stats.office, stats.wfh, stats.al, stats.mc, stats.task, stats.others],
+        backgroundColor: [
+          CHART_COLORS.office, CHART_COLORS.wfh, CHART_COLORS.al,
+          CHART_COLORS.mc, CHART_COLORS.task, CHART_COLORS.others
+        ],
         borderRadius: 8, borderSkipped: false, barThickness: 40
       }]
     },
@@ -462,13 +710,14 @@ function renderAnalytics() {
     }
   });
 
-  const doughnutData = [stats.office, stats.wfh, stats.al, stats.mc, stats.task].filter(v => v > 0);
+  const doughnutData = [stats.office, stats.wfh, stats.al, stats.mc, stats.task, stats.others].filter(v => v > 0);
   const doughnutLabels = [
     { label: 'Office', value: stats.office, color: CHART_COLORS.office },
     { label: 'WFH', value: stats.wfh, color: CHART_COLORS.wfh },
     { label: 'Cuti', value: stats.al, color: CHART_COLORS.al },
     { label: 'MC', value: stats.mc, color: CHART_COLORS.mc },
-    { label: 'Site', value: stats.task, color: CHART_COLORS.task }
+    { label: 'Site', value: stats.task, color: CHART_COLORS.task },
+    { label: 'Others', value: stats.others, color: CHART_COLORS.others }
   ].filter(x => x.value > 0);
 
   charts.doughnut = new Chart(document.getElementById('chartDoughnut').getContext('2d'), {
@@ -568,7 +817,7 @@ function getFilteredTesters() {
 
 // STATISTIK
 function kiraStatistik(days) {
-  const stats = { tester: testers.length, office: 0, wfh: 0, al: 0, mc: 0, task: 0, public: 0, kosong: 0 };
+  const stats = { tester: testers.length, office: 0, wfh: 0, al: 0, mc: 0, task: 0, public: 0, others: 0, kosong: 0 };
   testers.forEach(t => {
     days.forEach(d => {
       const k = key(t.no, d.dateStr);
@@ -580,6 +829,7 @@ function kiraStatistik(days) {
       else if (type === 'mc') stats.mc++;
       else if (type === 'task') stats.task++;
       else if (type === 'public') stats.public++;
+      else if (type === 'others') stats.others++;
       else if (!d.isWeekend) stats.kosong++;
     });
   });
@@ -595,6 +845,8 @@ function renderStatistik(days) {
   document.getElementById('statMc').textContent = s.mc;
   document.getElementById('statTask').textContent = s.task;
   document.getElementById('statKosong').textContent = s.kosong;
+  const statOthersEl = document.getElementById('statOthers');
+  if (statOthersEl) statOthersEl.textContent = s.others;
 }
 
 // RENDER
@@ -613,7 +865,10 @@ function renderHeader(days) {
     if (isToday) classes.push('today-head');
     row1 += `<th class="${classes.join(' ')}">${d.name}</th>`;
   });
+  row1 += `<th class="col-summary al-sum" rowspan="2" title="Jumlah hari AL minggu ini">AL</th>`;
+  row1 += `<th class="col-summary mc-sum" rowspan="2" title="Jumlah hari MC minggu ini">MC</th>`;
   row1 += `</tr>`;
+
   let row2 = `<tr>`;
   days.forEach(d => {
     const isToday = d.dateStr === todayStr;
@@ -632,16 +887,23 @@ function renderBody(days) {
   const filteredTesters = getFilteredTesters();
 
   if (testers.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${days.length + 4}" style="padding:2rem;color:#94a3b8;">Memuatkan tester...</td></tr>`;
+    showSkeletonLoader(days);
     return;
   }
   if (filteredTesters.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${days.length + 4}" style="padding:2rem;color:#94a3b8;text-align:center;">🔍 Tiada tester sepadan dengan "<strong>${searchQuery}</strong>"</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${days.length + 6}" style="padding:2rem;color:#94a3b8;text-align:center;">🔍 Tiada tester sepadan dengan "<strong>${searchQuery}</strong>"</td></tr>`;
     return;
   }
 
   let html = '';
   filteredTesters.forEach((t, idx) => {
+    let alCount = 0, mcCount = 0;
+    days.forEach(d => {
+      const cell = schedule[key(t.no, d.dateStr)];
+      if (cell?.type === 'al') alCount++;
+      else if (cell?.type === 'mc') mcCount++;
+    });
+
     html += `<tr>`;
     if (idx === 0) {
       html += `<td class="col-unit" rowspan="${filteredTesters.length}"><div class="col-unit-inner">${t.unit || 'TESTING UNIT'}</div></td>`;
@@ -696,11 +958,16 @@ function renderBody(days) {
                    data-date-end="${days[i + span - 1].dateStr}"
                    data-span="${span}"
                    data-weekend="${d.isWeekend}"
+                   tabindex="0"
                    title="${dateLabel}">
                    ${displayText}
                </td>`;
       i += span;
     }
+
+    html += `<td class="col-summary al-sum ${alCount === 0 ? 'empty-sum' : ''}" title="${alCount > 0 ? alCount + ' hari AL' : 'Tiada AL'}">${alCount || '—'}</td>`;
+    html += `<td class="col-summary mc-sum ${mcCount === 0 ? 'empty-sum' : ''}" title="${mcCount > 0 ? mcCount + ' hari MC' : 'Tiada MC'}">${mcCount || '—'}</td>`;
+
     html += `</tr>`;
   });
 
@@ -728,6 +995,7 @@ function renderAll() {
   updateWeekBadge(days);
   renderStatistik(days);
   updateTodayBanner();
+  syncWeekPicker();
   if (currentMonday < getArchiveCutoffDate()) loadArchiveForWeek(currentMonday);
 }
 
@@ -785,6 +1053,9 @@ function openModal(cell) {
 function closeModal() {
   modal.classList.remove('active');
   activeCell = null;
+  if (focusedCell) {
+    setTimeout(() => focusedCell.focus(), 50);
+  }
 }
 
 document.getElementById('modalCancel').addEventListener('click', closeModal);
@@ -804,9 +1075,10 @@ document.getElementById('modalSave').addEventListener('click', async () => {
       await setScheduleCell(key(no, dStr), { text, type });
     }
     setSyncBadge('online', 'Online');
+    showToast('success', 'Berjaya disimpan');
     closeModal();
   } catch (err) {
-    alert('Gagal simpan: ' + err.message);
+    showToast('error', 'Gagal simpan', err.message);
     setSyncBadge('offline', 'Ralat');
   }
 });
@@ -859,20 +1131,21 @@ document.getElementById('testerSave').addEventListener('click', async () => {
   const no = parseInt(testerNo.value);
   const unit = testerUnit.value.trim() || 'TESTING UNIT';
 
-  if (!name) { alert('Sila isi nama tester.'); return; }
-  if (!no || no < 1) { alert('No. tidak sah.'); return; }
+  if (!name) { showToast('warning', 'Sila isi nama tester'); return; }
+  if (!no || no < 1) { showToast('warning', 'No. tidak sah'); return; }
 
   const dup = testers.find(t => t.no === no && t.no !== editingTesterNo);
-  if (dup) { alert(`No. ${no} sudah digunakan oleh ${dup.name}.`); return; }
+  if (dup) { showToast('warning', `No. ${no} sudah digunakan`, dup.name); return; }
 
   try {
     setSyncBadge('connecting', 'Menyimpan...');
     if (editingTesterNo !== null && editingTesterNo !== no) await removeTester(editingTesterNo);
     await setTester({ no, name, unit });
     setSyncBadge('online', 'Online');
+    showToast('success', editingTesterNo ? 'Tester dikemaskini' : 'Tester ditambah', name);
     closeTesterModal();
   } catch (err) {
-    alert('Gagal simpan: ' + err.message);
+    showToast('error', 'Gagal simpan', err.message);
   }
 });
 
@@ -905,8 +1178,9 @@ async function deleteTesterWithTrash(no) {
         await removeTester(no);
         await removeScheduleBulk(Object.keys(testerSchedule));
         setSyncBadge('online', 'Online');
+        showToast('success', 'Tester dipadam', t.name);
       } catch (err) {
-        alert('Gagal padam: ' + err.message);
+        showToast('error', 'Gagal padam', err.message);
       }
     }
   );
@@ -920,7 +1194,10 @@ async function clearWeekWithTrash() {
     const datePart = k.split('|')[1];
     return datePart >= startStr && datePart <= endStr;
   });
-  if (keysToDelete.length === 0) { alert('Tiada data untuk dipadam minggu ini.'); return; }
+  if (keysToDelete.length === 0) { 
+    showToast('info', 'Tiada data untuk dipadam');
+    return; 
+  }
   const weekLabel = `${formatShortDate(startStr)} – ${formatShortDate(endStr)}`;
   showConfirmModal(
     'Clear Minggu?',
@@ -933,8 +1210,9 @@ async function clearWeekWithTrash() {
         await saveToTrash('week', { cells: cells, weekLabel: weekLabel });
         await removeScheduleBulk(keysToDelete);
         setSyncBadge('online', 'Online');
+        showToast('success', 'Minggu dibersihkan', `${keysToDelete.length} sel`);
       } catch (err) {
-        alert('Gagal padam: ' + err.message);
+        showToast('error', 'Gagal padam', err.message);
       }
     }
   );
@@ -968,6 +1246,7 @@ document.getElementById('archiveBtn').addEventListener('click', async () => {
   archiveChecked = false;
   await autoArchiveOldData();
   btn.innerHTML = '<i class="fas fa-check"></i> Selesai!';
+  showToast('success', 'Archive selesai');
   setTimeout(() => {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -1004,7 +1283,7 @@ function copyPreviousWeek() {
     });
   });
   if (toCopy.length === 0) {
-    alert('Tiada data untuk disalin.');
+    showToast('info', 'Tiada data untuk disalin');
     return;
   }
   paparModalCopy(toCopy);
@@ -1051,7 +1330,7 @@ function paparModalCopy(toCopy) {
       } catch (err) {}
     }
     overlay.remove();
-    alert(`✅ Berjaya copy ${berjaya}/${toCopy.length} sel.`);
+    showToast('success', 'Berjaya copy', `${berjaya}/${toCopy.length} sel disalin`);
   });
 }
 
@@ -1072,37 +1351,110 @@ clearSearchBtn.addEventListener('click', () => {
   searchInput.focus();
 });
 
-// SCREENSHOT
+// ═══════════════════════════════════════════════════════
+// SCREENSHOT — FIX KOLUM UNIT
+// ═══════════════════════════════════════════════════════
 const screenshotBtn = document.getElementById('screenshotBtn');
 screenshotBtn.addEventListener('click', async () => {
-  if (typeof html2canvas === 'undefined') { alert('Library screenshot tak load.'); return; }
+  console.log('[Screenshot] Button clicked');
+  
+  if (typeof html2canvas === 'undefined') { 
+    console.error('[Screenshot] html2canvas not loaded');
+    showToast('error', 'Library html2canvas tak load');
+    return; 
+  }
+  
   const originalText = screenshotBtn.innerHTML;
   screenshotBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyediakan...';
   screenshotBtn.classList.add('loading');
+  
+  const unitCells = document.querySelectorAll('.col-unit .col-unit-inner');
+  const originalElements = [];
+  
   try {
+    console.log('[Screenshot] Adding screenshot-mode class');
     document.body.classList.add('screenshot-mode');
-    const target = document.querySelector('.table-card');
-    await new Promise(r => setTimeout(r, 100));
-    const canvas = await html2canvas(target, {
-      backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false
+    
+    // Tukar kolum Unit
+    console.log('[Screenshot] Replacing unit cells:', unitCells.length);
+    unitCells.forEach((el) => {
+      originalElements.push({ parent: el.parentNode, el: el });
+      const span = document.createElement('span');
+      span.className = 'col-unit-screenshot';
+      span.textContent = el.textContent;
+      el.parentNode.replaceChild(span, el);
     });
+    
+    // Tunggu DOM update + repaint
+    await new Promise(r => setTimeout(r, 300));
+    
+    const target = document.querySelector('.table-card');
+    if (!target) {
+      throw new Error('Table card tak jumpa');
+    }
+    
+    console.log('[Screenshot] Starting html2canvas...');
+    const canvas = await html2canvas(target, {
+      backgroundColor: '#ffffff', 
+      scale: 2, 
+      useCORS: true, 
+      logging: true,
+      allowTaint: true,
+      foreignObjectRendering: false,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: target.scrollWidth,
+      windowHeight: target.scrollHeight
+    });
+    console.log('[Screenshot] html2canvas done:', canvas.width, 'x', canvas.height);
+    
+    // Restore
+    document.querySelectorAll('.col-unit-screenshot').forEach((span, i) => {
+      const orig = originalElements[i];
+      if (orig && orig.parent) {
+        orig.parent.replaceChild(orig.el, span);
+      }
+    });
+    
     document.body.classList.remove('screenshot-mode');
+    
     const weekNum = getWeekNumber(currentMonday);
     const firstDay = formatShortDate(getWeekDates(currentMonday)[0].dateStr);
     const lastDay = formatShortDate(getWeekDates(currentMonday)[6].dateStr);
     const fileName = `QA-Roster_Week${weekNum}_${firstDay}-${lastDay}.png`;
-    const link = document.createElement('a');
-    link.download = fileName;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+    
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      console.log('[Screenshot] Downloaded:', fileName);
+    }, 'image/png');
+    
     screenshotBtn.innerHTML = '<i class="fas fa-check"></i> Selesai!';
+    showToast('success', 'Screenshot disimpan', fileName);
     setTimeout(() => {
       screenshotBtn.innerHTML = originalText;
       screenshotBtn.classList.remove('loading');
     }, 2000);
+    
   } catch (err) {
+    console.error('[Screenshot] ERROR:', err);
+    
+    // Restore
     document.body.classList.remove('screenshot-mode');
-    alert('Gagal screenshot: ' + err.message);
+    document.querySelectorAll('.col-unit-screenshot').forEach((span, i) => {
+      const orig = originalElements[i];
+      if (orig && orig.parent) {
+        orig.parent.replaceChild(orig.el, span);
+      }
+    });
+    
+    showToast('error', 'Gagal screenshot', err.message);
     screenshotBtn.innerHTML = originalText;
     screenshotBtn.classList.remove('loading');
   }
@@ -1256,10 +1608,11 @@ function copyCell(cell) {
   cell.style.transition = 'none';
   cell.style.outline = '3px solid #10b981';
   setTimeout(() => { cell.style.outline = ''; cell.style.transition = ''; }, 400);
+  showToast('info', 'Copied', clipboard.text || '(kosong)');
 }
 
 async function pasteToCells(cells) {
-  if (!clipboard) { alert('Tiada apa untuk paste.'); return; }
+  if (!clipboard) { showToast('warning', 'Tiada apa untuk paste'); return; }
   const targets = cells.map(cell => ({
     no: cell.dataset.no,
     dates: expandDates(cell.dataset.date, cell.dataset.dateEnd)
@@ -1272,8 +1625,9 @@ async function pasteToCells(cells) {
       }
     }
     setSyncBadge('online', 'Online');
+    showToast('success', 'Pasted');
   } catch (err) {
-    alert('Gagal paste: ' + err.message);
+    showToast('error', 'Gagal paste', err.message);
   }
 }
 
@@ -1304,7 +1658,10 @@ document.getElementById('ctxDuplicate').addEventListener('click', async () => {
     setSyncBadge('connecting', 'Menyimpan...');
     await setScheduleCell(key(nextCell.dataset.no, nextCell.dataset.date), data);
     setSyncBadge('online', 'Online');
-  } catch (err) {}
+    showToast('success', 'Duplicated');
+  } catch (err) {
+    showToast('error', 'Gagal duplicate', err.message);
+  }
   hideContextMenu();
 });
 document.getElementById('ctxClear').addEventListener('click', async () => {
@@ -1323,7 +1680,10 @@ document.getElementById('ctxClear').addEventListener('click', async () => {
       }
     }
     setSyncBadge('online', 'Online');
-  } catch (err) {}
+    showToast('success', 'Cleared');
+  } catch (err) {
+    showToast('error', 'Gagal clear', err.message);
+  }
   hideContextMenu();
 });
 
@@ -1348,8 +1708,11 @@ bulkClearBtn.addEventListener('click', async () => {
       }
     }
     setSyncBadge('online', 'Online');
+    showToast('success', 'Cleared', `${selectedCells.size} sel`);
     clearSelection();
-  } catch (err) {}
+  } catch (err) {
+    showToast('error', 'Gagal clear', err.message);
+  }
 });
 
 bulkCancelBtn.addEventListener('click', clearSelection);
@@ -1375,6 +1738,7 @@ function openBulkEditModal() {
           <option value="mc">MC</option>
           <option value="public">Public Holiday</option>
           <option value="task">Site</option>
+          <option value="others">Others (Training, Meeting, dll)</option>
         </select>
       </div>
       <div class="modal-actions">
@@ -1406,9 +1770,10 @@ function openBulkEditModal() {
       }
       setSyncBadge('online', 'Online');
       overlay.remove();
+      showToast('success', 'Berjaya edit', `${totalCells} sel dikemaskini`);
       clearSelection();
     } catch (err) {
-      alert('Gagal simpan: ' + err.message);
+      showToast('error', 'Gagal simpan', err.message);
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-save"></i> Simpan';
     }
@@ -1418,7 +1783,10 @@ function openBulkEditModal() {
   });
 }
 
+// ═══════════════════════════════════════════════════════
 // KEYBOARD NAVIGATION
+// ═══════════════════════════════════════════════════════
+
 function setFocusedCell(cell) {
   document.querySelectorAll('td.cell.focused').forEach(c => c.classList.remove('focused'));
   if (cell) {
@@ -1435,33 +1803,42 @@ function getAllCells() {
 }
 
 function getCellPosition(cell) {
-  const allCells = getAllCells();
-  if (!allCells.includes(cell)) return null;
-  const testerNo = cell.dataset.no;
-  const dateStr = cell.dataset.date;
-  const rows = [...new Set(allCells.map(c => c.dataset.no))];
-  const cols = [...new Set(allCells.map(c => c.dataset.date))].sort();
-  const rowIdx = rows.indexOf(testerNo);
-  const colIdx = cols.indexOf(dateStr);
-  return { rowIdx, colIdx, rows, cols, testerNo, dateStr };
+  if (!cell) return null;
+  const cells = getAllCells();
+  const cellIdx = cells.indexOf(cell);
+  if (cellIdx === -1) return null;
+  
+  const no = cell.dataset.no;
+  const date = cell.dataset.date;
+  
+  const rows = [...new Set(cells.map(c => c.dataset.no))];
+  const cols = [...new Set(cells.map(c => c.dataset.date))].sort();
+  
+  const rowIdx = rows.indexOf(no);
+  const colIdx = cols.indexOf(date);
+  
+  return { rowIdx, colIdx, rows, cols, testerNo: no, dateStr: date };
 }
 
 function findCellAt(rowIdx, colIdx) {
-  const allCells = getAllCells();
-  if (allCells.length === 0) return null;
-  const rows = [...new Set(allCells.map(c => c.dataset.no))];
-  const cols = [...new Set(allCells.map(c => c.dataset.date))].sort();
+  const cells = getAllCells();
+  if (cells.length === 0) return null;
+  const rows = [...new Set(cells.map(c => c.dataset.no))];
+  const cols = [...new Set(cells.map(c => c.dataset.date))].sort();
   if (rowIdx < 0 || rowIdx >= rows.length) return null;
   if (colIdx < 0 || colIdx >= cols.length) return null;
-  const targetTesterNo = rows[rowIdx];
-  const targetDateStr = cols[colIdx];
-  return allCells.find(c => c.dataset.no === targetTesterNo && c.dataset.date === targetDateStr);
+  const targetNo = rows[rowIdx];
+  const targetDate = cols[colIdx];
+  return cells.find(c => c.dataset.no === targetNo && c.dataset.date === targetDate);
 }
 
 function moveFocus(direction) {
   if (!focusedCell) {
     const first = getAllCells()[0];
-    if (first) setFocusedCell(first);
+    if (first) {
+      setFocusedCell(first);
+      first.focus();
+    }
     return;
   }
   const pos = getCellPosition(focusedCell);
@@ -1479,6 +1856,7 @@ function moveFocus(direction) {
   const targetCell = findCellAt(newRow, newCol);
   if (targetCell) {
     setFocusedCell(targetCell);
+    targetCell.focus();
     lastClickedCell = targetCell;
   }
 }
@@ -1495,6 +1873,7 @@ async function clearFocusedCell() {
       await setScheduleCell(key(no, dStr), { text: '', type: '' });
     }
     setSyncBadge('online', 'Online');
+    showToast('success', 'Cleared');
   } catch (err) {}
 }
 
@@ -1507,9 +1886,12 @@ function copyFocusedCell() {
   focusedCell.style.transition = 'none';
   focusedCell.style.outline = '3px solid #10b981';
   setTimeout(() => {
-    focusedCell.style.outline = '';
-    focusedCell.style.transition = '';
+    if (focusedCell) {
+      focusedCell.style.outline = '';
+      focusedCell.style.transition = '';
+    }
   }, 400);
+  showToast('info', 'Copied', clipboard.text || '(kosong)');
 }
 
 async function pasteToFocusedCell() {
@@ -1524,8 +1906,9 @@ async function pasteToFocusedCell() {
       await setScheduleCell(key(no, dStr), clipboard);
     }
     setSyncBadge('online', 'Online');
+    showToast('success', 'Pasted');
   } catch (err) {
-    alert('Gagal paste: ' + err.message);
+    showToast('error', 'Gagal paste', err.message);
   }
 }
 
@@ -1583,6 +1966,7 @@ function extendSelection(direction) {
       targetCell.classList.add('selected');
     }
     setFocusedCell(targetCell);
+    targetCell.focus();
     updateBulkCount();
     lastClickedCell = targetCell;
   }
@@ -1591,19 +1975,25 @@ function extendSelection(direction) {
 function attachKeyboardNav() {
   if (IS_MOBILE) return;
   document.querySelectorAll('td.cell').forEach(cell => {
-    cell.setAttribute('tabindex', '0');
-    cell.addEventListener('focus', () => {
-      setFocusedCell(cell);
-      lastClickedCell = cell;
-    });
+    if (!cell.hasAttribute('tabindex')) {
+      cell.setAttribute('tabindex', '0');
+    }
+    cell.onfocus = () => {
+      if (focusedCell !== cell) {
+        setFocusedCell(cell);
+        lastClickedCell = cell;
+      }
+    };
   });
 }
 
 function initKeyboardNav() {
   if (IS_MOBILE) return;
+  
   document.addEventListener('keydown', async (e) => {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    
     const activeModal = document.querySelector('.modal-overlay.active');
     if (activeModal) return;
     
@@ -1611,7 +2001,10 @@ function initKeyboardNav() {
       if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Tab') {
         e.preventDefault();
         const first = getAllCells()[0];
-        if (first) setFocusedCell(first);
+        if (first) {
+          setFocusedCell(first);
+          first.focus();
+        }
       }
       return;
     }
@@ -1644,9 +2037,11 @@ function initKeyboardNav() {
       if (isShift) moveFocus('left'); else moveFocus('right');
       return;
     }
+    
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (isShift) moveFocus('up'); else editFocusedCell();
+      if (isShift) moveFocus('up');
+      else editFocusedCell();
       return;
     }
     if (e.key === 'F2') {
@@ -1654,27 +2049,72 @@ function initKeyboardNav() {
       editFocusedCell();
       return;
     }
+    
     if (e.key === 'Home') {
       e.preventDefault();
-      if (isCtrl) { const first = getAllCells()[0]; if (first) setFocusedCell(first); }
-      else moveFocus('home');
+      if (isCtrl) {
+        const first = getAllCells()[0];
+        if (first) { setFocusedCell(first); first.focus(); }
+      } else {
+        moveFocus('home');
+      }
       return;
     }
     if (e.key === 'End') {
       e.preventDefault();
-      if (isCtrl) { const all = getAllCells(); if (all.length) setFocusedCell(all[all.length - 1]); }
-      else moveFocus('end');
+      if (isCtrl) {
+        const all = getAllCells();
+        if (all.length) {
+          const last = all[all.length - 1];
+          setFocusedCell(last); last.focus();
+        }
+      } else {
+        moveFocus('end');
+      }
       return;
     }
-    if (isCtrl && e.key === 'c') { e.preventDefault(); copyFocusedCell(); return; }
-    if (isCtrl && e.key === 'v') { e.preventDefault(); await pasteToFocusedCell(); return; }
-    if (isCtrl && e.key === 'x') { e.preventDefault(); copyFocusedCell(); await clearFocusedCell(); return; }
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); await clearFocusedCell(); return; }
-    if (isCtrl && e.key === 'a') { e.preventDefault(); selectFocusedColumn(); return; }
-    if (isCtrl && e.key === ' ') { e.preventDefault(); selectFocusedRow(); return; }
+    
+    if (isCtrl && (e.key === 'c' || e.key === 'C')) {
+      e.preventDefault();
+      copyFocusedCell();
+      return;
+    }
+    if (isCtrl && (e.key === 'v' || e.key === 'V')) {
+      e.preventDefault();
+      await pasteToFocusedCell();
+      return;
+    }
+    if (isCtrl && (e.key === 'x' || e.key === 'X')) {
+      e.preventDefault();
+      copyFocusedCell();
+      await clearFocusedCell();
+      return;
+    }
+    
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      await clearFocusedCell();
+      return;
+    }
+    
+    if (isCtrl && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      selectFocusedColumn();
+      return;
+    }
+    
+    if (isCtrl && e.key === ' ') {
+      e.preventDefault();
+      selectFocusedRow();
+      return;
+    }
+    
     if (e.key === 'Escape') {
       clearSelection();
       setFocusedCell(null);
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
       hideContextMenu();
       return;
     }
@@ -1688,6 +2128,8 @@ window.addEventListener('firebase-ready', () => {
   FB = window.FB;
   setSyncBadge('connecting', 'Menyambung...');
 
+  showSkeletonLoader(getWeekDates(currentMonday));
+
   listenTesters();
   listenSchedule();
   listenTrash();
@@ -1695,13 +2137,13 @@ window.addEventListener('firebase-ready', () => {
   setTimeout(() => setSyncBadge('online', 'Online'), 2000);
   setTimeout(autoPurgeTrash, 5000);
 
-  renderAll();
-
   document.getElementById('copyPrevWeekBtn').addEventListener('click', copyPreviousWeek);
 
-  // Init Analytics
   initAnalytics();
-
-  // Init Keyboard Navigation
   initKeyboardNav();
+  initWeekNavigation();
+
+  document.getElementById('leaveReportBtn').addEventListener('click', openLeaveReport);
+
+  syncWeekPicker();
 });

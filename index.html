@@ -25,6 +25,7 @@
     <div class="header-right">
       <span class="sync-badge" id="syncBadge"><i class="fas fa-circle"></i> Menyambung...</span>
       <button id="analyticsBtn" class="btn-analytics"><i class="fas fa-chart-line"></i> Analytics</button>
+      <button id="leaveReportBtn" class="btn-leave" title="Laporan Cuti & MC"><i class="fas fa-clipboard-check"></i> Cuti/MC</button>
       <div class="search-box">
         <i class="fas fa-search"></i>
         <input type="text" id="searchInput" placeholder="Cari tester...">
@@ -42,10 +43,21 @@
 
   <div class="week-nav">
     <button id="prevWeekBtn" class="nav-btn"><i class="fas fa-chevron-left"></i> Minggu Lepas</button>
+
     <div class="week-info">
       <span class="week-badge" id="weekBadge">Week —</span>
-      <button id="todayBtn" class="today-btn">Hari Ini</button>
+      <input type="date" id="weekPicker" class="week-picker" title="Pilih mana-mana tarikh">
+      <div class="quick-jump">
+        <button class="quick-btn" data-jump="-4" title="4 minggu lepas">-4w</button>
+        <button class="quick-btn" data-jump="-2" title="2 minggu lepas">-2w</button>
+        <button class="quick-btn" data-jump="-1" title="1 minggu lepas">-1w</button>
+        <button id="todayBtn" class="today-btn">Hari Ini</button>
+        <button class="quick-btn" data-jump="1" title="1 minggu depan">+1w</button>
+        <button class="quick-btn" data-jump="2" title="2 minggu depan">+2w</button>
+        <button class="quick-btn" data-jump="4" title="4 minggu depan">+4w</button>
+      </div>
     </div>
+
     <div style="display:flex; gap:.5rem;">
       <button id="nextWeekBtn" class="nav-btn">Minggu Depan <i class="fas fa-chevron-right"></i></button>
       <button id="copyPrevWeekBtn" class="btn-copy"><i class="fas fa-copy"></i> Copy Minggu Lepas</button>
@@ -78,6 +90,10 @@
       <div><span class="stat-number" id="statTask">0</span><span class="stat-label">Site</span></div>
     </div>
     <div class="stat-card">
+      <i class="fas fa-layer-group" style="color:#f97316;"></i>
+      <div><span class="stat-number" id="statOthers">0</span><span class="stat-label">Others</span></div>
+    </div>
+    <div class="stat-card">
       <i class="fas fa-circle-question" style="color:#94a3b8;"></i>
       <div><span class="stat-number" id="statKosong">0</span><span class="stat-label">Kosong</span></div>
     </div>
@@ -90,6 +106,7 @@
     <span><span class="dot mc"></span> MC</span>
     <span><span class="dot public"></span> Public Holiday</span>
     <span><span class="dot task"></span> Site</span>
+    <span><span class="dot others"></span> Others</span>
     <span><span class="dot weekend"></span> Weekend</span>
     <span style="margin-left:auto; color:#8b5cf6; font-weight:600;">
       <i class="fas fa-info-circle"></i> Klik 2x untuk edit | Ctrl+Click untuk select
@@ -128,6 +145,7 @@
         <option value="mc">MC</option>
         <option value="public">Public Holiday</option>
         <option value="task">Site</option>
+        <option value="others">Others (Training, Meeting, dll)</option>
       </select>
     </div>
     <div class="modal-actions">
