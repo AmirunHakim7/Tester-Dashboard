@@ -1,4 +1,4 @@
-// script.js — Full version dengan "Others" type + Date Picker + Quick Jump + AL/MC Summary + Leave Report + Keyboard Nav FIX + Screenshot Fix
+// script.js — Full version + Mobile Touch + Keyboard Nav + Context Menu Fix
 // ═══════════════════════════════════════════════════════
 
 const DEFAULT_TESTERS = [
@@ -211,7 +211,17 @@ function isArchivedDate(dateStr) {
 function syncWeekPicker() {
   const picker = document.getElementById('weekPicker');
   if (!picker) return;
-  picker.value = toLocalDateStr(currentMonday);
+  
+  const todayMondayStr = toLocalDateStr(getMonday(new Date()));
+  const currentMondayStr = toLocalDateStr(currentMonday);
+  
+  if (todayMondayStr === currentMondayStr) {
+    // Minggu semasa — tunjuk HARI NI
+    picker.value = toLocalDateStr(new Date());
+  } else {
+    // Minggu lain — tunjuk ISNIN minggu tu
+    picker.value = currentMondayStr;
+  }
 }
 
 function initWeekNavigation() {
@@ -1352,7 +1362,7 @@ clearSearchBtn.addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SCREENSHOT — FIX KOLUM UNIT
+// SCREENSHOT — SEMBUNYI KOLUM UNIT
 // ═══════════════════════════════════════════════════════
 const screenshotBtn = document.getElementById('screenshotBtn');
 screenshotBtn.addEventListener('click', async () => {
@@ -1368,53 +1378,28 @@ screenshotBtn.addEventListener('click', async () => {
   screenshotBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyediakan...';
   screenshotBtn.classList.add('loading');
   
-  const unitCells = document.querySelectorAll('.col-unit .col-unit-inner');
-  const originalElements = [];
-  
   try {
     console.log('[Screenshot] Adding screenshot-mode class');
     document.body.classList.add('screenshot-mode');
     
-    // Tukar kolum Unit
-    console.log('[Screenshot] Replacing unit cells:', unitCells.length);
-    unitCells.forEach((el) => {
-      originalElements.push({ parent: el.parentNode, el: el });
-      const span = document.createElement('span');
-      span.className = 'col-unit-screenshot';
-      span.textContent = el.textContent;
-      el.parentNode.replaceChild(span, el);
-    });
-    
-    // Tunggu DOM update + repaint
     await new Promise(r => setTimeout(r, 300));
     
     const target = document.querySelector('.table-card');
-    if (!target) {
-      throw new Error('Table card tak jumpa');
-    }
+    if (!target) throw new Error('Table card tak jumpa');
     
     console.log('[Screenshot] Starting html2canvas...');
     const canvas = await html2canvas(target, {
-      backgroundColor: '#ffffff', 
-      scale: 2, 
-      useCORS: true, 
-      logging: true,
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false,
       allowTaint: true,
-      foreignObjectRendering: false,
       scrollX: 0,
       scrollY: 0,
       windowWidth: target.scrollWidth,
       windowHeight: target.scrollHeight
     });
-    console.log('[Screenshot] html2canvas done:', canvas.width, 'x', canvas.height);
-    
-    // Restore
-    document.querySelectorAll('.col-unit-screenshot').forEach((span, i) => {
-      const orig = originalElements[i];
-      if (orig && orig.parent) {
-        orig.parent.replaceChild(orig.el, span);
-      }
-    });
+    console.log('[Screenshot] Done:', canvas.width, 'x', canvas.height);
     
     document.body.classList.remove('screenshot-mode');
     
@@ -1437,6 +1422,7 @@ screenshotBtn.addEventListener('click', async () => {
     
     screenshotBtn.innerHTML = '<i class="fas fa-check"></i> Selesai!';
     showToast('success', 'Screenshot disimpan', fileName);
+    
     setTimeout(() => {
       screenshotBtn.innerHTML = originalText;
       screenshotBtn.classList.remove('loading');
@@ -1444,16 +1430,7 @@ screenshotBtn.addEventListener('click', async () => {
     
   } catch (err) {
     console.error('[Screenshot] ERROR:', err);
-    
-    // Restore
     document.body.classList.remove('screenshot-mode');
-    document.querySelectorAll('.col-unit-screenshot').forEach((span, i) => {
-      const orig = originalElements[i];
-      if (orig && orig.parent) {
-        orig.parent.replaceChild(orig.el, span);
-      }
-    });
-    
     showToast('error', 'Gagal screenshot', err.message);
     screenshotBtn.innerHTML = originalText;
     screenshotBtn.classList.remove('loading');
@@ -1506,34 +1483,84 @@ function refreshSelectionAfterRender() {
   updateBulkCount();
 }
 
+// ═══════════════════════════════════════════════════════
+// ATTACH CELL EVENTS — FIX MOBILE TOUCH + CONTEXT MENU
+// ═══════════════════════════════════════════════════════
 function attachCellEvents() {
   document.querySelectorAll('td.cell').forEach(cell => {
     if (IS_MOBILE) {
+      // ═══ MOBILE ═══
+      let longPressTimer = null;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let isScrolling = false;
+      let didLongPress = false;
+      let touchMoved = false;
+
+      // Tap → edit
       cell.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
+        if (didLongPress) { didLongPress = false; return; }
+        if (isScrolling || touchMoved) return;
+        e.preventDefault();
+        e.stopPropagation();
         setFocusedCell(cell);
         lastClickedCell = cell;
         openModal(cell);
       });
 
-      let longPressTimer = null;
       cell.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        isScrolling = false;
+        didLongPress = false;
+        touchMoved = false;
+
         longPressTimer = setTimeout(() => {
-          e.preventDefault();
+          if (isScrolling || touchMoved) return;
+          didLongPress = true;
           lastClickedCell = cell;
           setFocusedCell(cell);
-          const touch = e.touches[0] || e.changedTouches[0];
-          if (touch) showContextMenu(touch.pageX, touch.pageY, cell);
+          const t = e.touches[0] || e.changedTouches[0];
+          if (t) showContextMenu(t.pageX, t.pageY, cell);
           if (navigator.vibrate) navigator.vibrate(50);
-        }, 500);
-      }, { passive: false });
+        }, 550);
+      }, { passive: true });
+
+      cell.addEventListener('touchmove', (e) => {
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - touchStartX);
+        const dy = Math.abs(touch.clientY - touchStartY);
+        if (dx > 8 || dy > 8) {
+          isScrolling = true;
+          touchMoved = true;
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+      }, { passive: true });
+
       cell.addEventListener('touchend', () => {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
       });
-      cell.addEventListener('touchmove', () => {
+
+      cell.addEventListener('touchcancel', () => {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        isScrolling = false;
+        didLongPress = false;
+        touchMoved = false;
       });
+
     } else {
+      // ═══ DESKTOP ═══
+      // Prevent text selection bila drag
+      cell.addEventListener('mousedown', (e) => {
+        if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+        }
+      });
+
       cell.addEventListener('click', (e) => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault(); e.stopPropagation();
@@ -1561,6 +1588,7 @@ function attachCellEvents() {
 
       cell.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!selectedCells.has(cell)) clearSelection();
         lastClickedCell = cell;
         setFocusedCell(cell);
@@ -1593,13 +1621,18 @@ function showContextMenu(x, y, cell) {
 }
 function hideContextMenu() { contextMenu.classList.remove('active'); }
 
-document.addEventListener('click', (e) => {
-  if (!contextMenu.contains(e.target)) hideContextMenu();
+// ═══ Tutup context menu bila klik luar ═══
+document.addEventListener('mousedown', (e) => {
+  if (contextMenu.contains(e.target)) return;
+  if (e.target.closest('td.cell')) return;
+  hideContextMenu();
 });
+document.addEventListener('touchstart', (e) => {
+  if (contextMenu.contains(e.target)) return;
+  if (e.target.closest('td.cell')) return;
+  hideContextMenu();
+}, { passive: true });
 document.addEventListener('scroll', hideContextMenu, true);
-document.addEventListener('contextmenu', (e) => {
-  if (!e.target.closest('td.cell')) hideContextMenu();
-});
 
 function copyCell(cell) {
   const no = cell.dataset.no;
@@ -1792,9 +1825,18 @@ function setFocusedCell(cell) {
   if (cell) {
     focusedCell = cell;
     cell.classList.add('focused');
+    cell.setAttribute('tabindex', '0');
+    // PENTING: bagi browser tahu cell ni active untuk keyboard events
+    if (!IS_MOBILE) {
+      cell.focus();
+    }
     cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   } else {
     focusedCell = null;
+    if (document.activeElement && document.activeElement.blur && 
+        document.activeElement.tagName === 'TD') {
+      document.activeElement.blur();
+    }
   }
 }
 
@@ -1835,10 +1877,7 @@ function findCellAt(rowIdx, colIdx) {
 function moveFocus(direction) {
   if (!focusedCell) {
     const first = getAllCells()[0];
-    if (first) {
-      setFocusedCell(first);
-      first.focus();
-    }
+    if (first) setFocusedCell(first);
     return;
   }
   const pos = getCellPosition(focusedCell);
@@ -1856,7 +1895,6 @@ function moveFocus(direction) {
   const targetCell = findCellAt(newRow, newCol);
   if (targetCell) {
     setFocusedCell(targetCell);
-    targetCell.focus();
     lastClickedCell = targetCell;
   }
 }
@@ -1966,7 +2004,6 @@ function extendSelection(direction) {
       targetCell.classList.add('selected');
     }
     setFocusedCell(targetCell);
-    targetCell.focus();
     updateBulkCount();
     lastClickedCell = targetCell;
   }
@@ -1990,6 +2027,13 @@ function attachKeyboardNav() {
 function initKeyboardNav() {
   if (IS_MOBILE) return;
   
+  // Set tabindex pada semua cell
+  document.querySelectorAll('td.cell').forEach(cell => {
+    if (!cell.hasAttribute('tabindex')) {
+      cell.setAttribute('tabindex', '0');
+    }
+  });
+  
   document.addEventListener('keydown', async (e) => {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -1997,14 +2041,18 @@ function initKeyboardNav() {
     const activeModal = document.querySelector('.modal-overlay.active');
     if (activeModal) return;
     
+    // Escape tutup context menu
+    if (e.key === 'Escape' && contextMenu.classList.contains('active')) {
+      hideContextMenu();
+      return;
+    }
+    
+    // Belum ada focused cell — start dari cell pertama
     if (!focusedCell) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Tab') {
+      if (['ArrowDown', 'ArrowRight', 'Tab'].includes(e.key)) {
         e.preventDefault();
         const first = getAllCells()[0];
-        if (first) {
-          setFocusedCell(first);
-          first.focus();
-        }
+        if (first) setFocusedCell(first);
       }
       return;
     }
@@ -2012,6 +2060,7 @@ function initKeyboardNav() {
     const isCtrl = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
     
+    // Arrow navigation
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (isShift) extendSelection('up'); else moveFocus('up');
@@ -2038,6 +2087,7 @@ function initKeyboardNav() {
       return;
     }
     
+    // Edit
     if (e.key === 'Enter') {
       e.preventDefault();
       if (isShift) moveFocus('up');
@@ -2050,11 +2100,12 @@ function initKeyboardNav() {
       return;
     }
     
+    // Home / End
     if (e.key === 'Home') {
       e.preventDefault();
       if (isCtrl) {
         const first = getAllCells()[0];
-        if (first) { setFocusedCell(first); first.focus(); }
+        if (first) setFocusedCell(first);
       } else {
         moveFocus('home');
       }
@@ -2064,16 +2115,14 @@ function initKeyboardNav() {
       e.preventDefault();
       if (isCtrl) {
         const all = getAllCells();
-        if (all.length) {
-          const last = all[all.length - 1];
-          setFocusedCell(last); last.focus();
-        }
+        if (all.length) setFocusedCell(all[all.length - 1]);
       } else {
         moveFocus('end');
       }
       return;
     }
     
+    // Copy / Paste / Cut
     if (isCtrl && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       copyFocusedCell();
@@ -2091,30 +2140,29 @@ function initKeyboardNav() {
       return;
     }
     
+    // Delete
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       await clearFocusedCell();
       return;
     }
     
+    // Select column / row
     if (isCtrl && (e.key === 'a' || e.key === 'A')) {
       e.preventDefault();
       selectFocusedColumn();
       return;
     }
-    
     if (isCtrl && e.key === ' ') {
       e.preventDefault();
       selectFocusedRow();
       return;
     }
     
+    // Escape
     if (e.key === 'Escape') {
       clearSelection();
       setFocusedCell(null);
-      if (document.activeElement && document.activeElement.blur) {
-        document.activeElement.blur();
-      }
       hideContextMenu();
       return;
     }
