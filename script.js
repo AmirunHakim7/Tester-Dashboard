@@ -1375,47 +1375,115 @@ screenshotBtn.addEventListener('click', async () => {
   screenshotBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyediakan...';
   screenshotBtn.classList.add('loading');
   
+  // ═══ STEP 1: Clone table ke container sementara ═══
+  const originalTableCard = document.querySelector('.table-card');
+  if (!originalTableCard) {
+    showToast('error', 'Table card tak jumpa');
+    screenshotBtn.innerHTML = originalText;
+    screenshotBtn.classList.remove('loading');
+    return;
+  }
+  
+  // Buat container baru — position fixed tapi jauh dari viewport, tak ada overflow
+  const cloneContainer = document.createElement('div');
+  cloneContainer.id = 'screenshotCloneContainer';
+  cloneContainer.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 99999 !important;
+    background: #ffffff !important;
+    padding: 16px !important;
+    width: max-content !important;
+    height: max-content !important;
+    overflow: visible !important;
+    pointer-events: none !important;
+    opacity: 0.01 !important;
+  `;
+  
+  // Clone table-card
+  const clone = originalTableCard.cloneNode(true);
+  clone.id = 'screenshotClone';
+  clone.style.cssText = `
+    overflow: visible !important;
+    max-height: none !important;
+    max-width: none !important;
+    width: max-content !important;
+    height: auto !important;
+    background: #ffffff !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  `;
+  
+  // Fix dalam clone — buang semua overflow & constraint
+  clone.querySelectorAll('*').forEach(el => {
+    const style = window.getComputedStyle(el);
+    if (style.overflow !== 'visible') {
+      el.style.overflow = 'visible';
+    }
+    if (style.maxHeight && style.maxHeight !== 'none') {
+      el.style.maxHeight = 'none';
+    }
+    if (style.maxWidth && style.maxWidth !== 'none') {
+      el.style.maxWidth = 'none';
+    }
+  });
+  
+  // Fix table-wrapper dalam clone
+  const cloneWrapper = clone.querySelector('.table-wrapper');
+  if (cloneWrapper) {
+    cloneWrapper.style.cssText = `
+      overflow: visible !important;
+      max-height: none !important;
+      max-width: none !important;
+      height: auto !important;
+      width: max-content !important;
+      border-radius: 0 !important;
+    `;
+  }
+  
+  // Fix table dalam clone
+  const cloneTable = clone.querySelector('table');
+  if (cloneTable) {
+    cloneTable.style.cssText = `
+      min-width: auto !important;
+      width: auto !important;
+      border-collapse: separate !important;
+      border-spacing: 0 !important;
+    `;
+    // Pastikan table layout auto supaya semua kolum nampak
+    cloneTable.style.tableLayout = 'auto';
+  }
+  
+  // Sembunyi kolum Unit dalam clone (macam screenshot mode)
+  clone.querySelectorAll('.col-unit').forEach(el => {
+    el.style.display = 'none';
+  });
+  
+  // Pastikan kolum AL/MC nampak
+  clone.querySelectorAll('.col-summary').forEach(el => {
+    el.style.display = 'table-cell';
+  });
+  
+  // Pastikan semua td.cell nampak
+  clone.querySelectorAll('td.cell').forEach(el => {
+    el.style.display = 'table-cell';
+  });
+  
+  cloneContainer.appendChild(clone);
+  document.body.appendChild(cloneContainer);
+  
+  // ═══ STEP 2: Tunggu render + dapatkan dimension ═══
+  await new Promise(r => setTimeout(r, 500));
+  
+  const fullWidth = clone.scrollWidth;
+  const fullHeight = clone.scrollHeight;
+  console.log('[Screenshot] Clone size:', fullWidth, 'x', fullHeight);
+  
   try {
-    document.body.classList.add('screenshot-mode');
-    
-    // Tunggu DOM repaint
-    await new Promise(r => setTimeout(r, 400));
-    
-    const target = document.querySelector('.table-card');
-    if (!target) throw new Error('Table card tak jumpa');
-    
-    // Simpan style asal untuk restore
-    const wrapper = target.querySelector('.table-wrapper');
-    const table = target.querySelector('table');
-    const originalWrapperStyle = {};
-    const originalTableStyle = {};
-    
-    if (wrapper) {
-      ['overflow', 'maxHeight', 'height', 'width'].forEach(prop => {
-        originalWrapperStyle[prop] = wrapper.style[prop];
-      });
-      wrapper.style.overflow = 'visible';
-      wrapper.style.maxHeight = 'none';
-      wrapper.style.height = 'auto';
-      wrapper.style.width = 'auto';
-    }
-    
-    if (table) {
-      ['minWidth', 'width'].forEach(prop => {
-        originalTableStyle[prop] = table.style[prop];
-      });
-      table.style.minWidth = 'auto';
-      table.style.width = 'auto';
-    }
-    
-    // Tunggu render
-    await new Promise(r => setTimeout(r, 300));
-    
-    const fullWidth = target.scrollWidth;
-    const fullHeight = target.scrollHeight;
-    console.log('[Screenshot] Target size:', fullWidth, 'x', fullHeight);
-    
-    const canvas = await html2canvas(target, {
+    // ═══ STEP 3: Capture clone ═══
+    const canvas = await html2canvas(clone, {
       backgroundColor: '#ffffff',
       scale: 2,
       useCORS: true,
@@ -1426,24 +1494,15 @@ screenshotBtn.addEventListener('click', async () => {
       windowWidth: fullWidth,
       windowHeight: fullHeight,
       width: fullWidth,
-      height: fullHeight
+      height: fullHeight,
+      x: 0,
+      y: 0
     });
     
     console.log('[Screenshot] Canvas size:', canvas.width, 'x', canvas.height);
     
-    // Restore
-    if (wrapper) {
-      Object.keys(originalWrapperStyle).forEach(prop => {
-        wrapper.style[prop] = originalWrapperStyle[prop];
-      });
-    }
-    if (table) {
-      Object.keys(originalTableStyle).forEach(prop => {
-        table.style[prop] = originalTableStyle[prop];
-      });
-    }
-    
-    document.body.classList.remove('screenshot-mode');
+    // ═══ STEP 4: Buang clone ═══
+    cloneContainer.remove();
     
     const weekNum = getWeekNumber(currentMonday);
     const firstDay = formatShortDate(getWeekDates(currentMonday)[0].dateStr);
@@ -1472,7 +1531,7 @@ screenshotBtn.addEventListener('click', async () => {
     
   } catch (err) {
     console.error('[Screenshot] ERROR:', err);
-    document.body.classList.remove('screenshot-mode');
+    cloneContainer.remove();
     showToast('error', 'Gagal screenshot', err.message);
     screenshotBtn.innerHTML = originalText;
     screenshotBtn.classList.remove('loading');
