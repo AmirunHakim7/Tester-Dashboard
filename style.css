@@ -343,6 +343,11 @@ td.cell.today-cell.weekend { background: linear-gradient(rgba(59,130,246,.08), r
   overflow: visible !important; 
   max-height: none !important; 
   height: auto !important;
+  width: auto !important;
+}
+.screenshot-mode table {
+  min-width: auto !important;
+  width: auto !important;
 }
 .screenshot-mode table th.col-unit,
 .screenshot-mode table td.col-unit {
@@ -1074,6 +1079,35 @@ tbody tr:hover td.col-no { border-left: 3px solid #3b82f6; }
   .btn-copy {
     padding: .4rem .7rem;
     font-size: .75rem;
+  }
+
+  /* ═══ SCREENSHOT MODE — override mobile rules ═══ */
+  .screenshot-mode .table-wrapper {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    width: auto !important;
+  }
+  .screenshot-mode table {
+    min-width: auto !important;
+    width: auto !important;
+  }
+  /* Pastikan semua kolum tunjuk dalam screenshot */
+  .screenshot-mode table th.col-unit,
+  .screenshot-mode table td.col-unit {
+    display: none !important;
+  }
+  .screenshot-mode table th.col-no,
+  .screenshot-mode table th.col-name,
+  .screenshot-mode table th.col-action,
+  .screenshot-mode table th.col-day,
+  .screenshot-mode table th.col-summary,
+  .screenshot-mode table td.col-no,
+  .screenshot-mode table td.col-name,
+  .screenshot-mode table td.col-action,
+  .screenshot-mode table td.cell,
+  .screenshot-mode table td.col-summary {
+    display: table-cell !important;
   }
 }
 

@@ -1,4 +1,4 @@
-// script.js — Full version + Mobile Touch + Keyboard Nav + Context Menu Fix
+// script.js — Full version + Mobile Touch + Keyboard Nav + Context Menu + Screenshot Fix
 // ═══════════════════════════════════════════════════════
 
 const DEFAULT_TESTERS = [
@@ -216,10 +216,8 @@ function syncWeekPicker() {
   const currentMondayStr = toLocalDateStr(currentMonday);
   
   if (todayMondayStr === currentMondayStr) {
-    // Minggu semasa — tunjuk HARI NI
     picker.value = toLocalDateStr(new Date());
   } else {
-    // Minggu lain — tunjuk ISNIN minggu tu
     picker.value = currentMondayStr;
   }
 }
@@ -1362,14 +1360,13 @@ clearSearchBtn.addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SCREENSHOT — SEMBUNYI KOLUM UNIT
+// SCREENSHOT — FIX MOBILE FULL TABLE
 // ═══════════════════════════════════════════════════════
 const screenshotBtn = document.getElementById('screenshotBtn');
 screenshotBtn.addEventListener('click', async () => {
   console.log('[Screenshot] Button clicked');
   
   if (typeof html2canvas === 'undefined') { 
-    console.error('[Screenshot] html2canvas not loaded');
     showToast('error', 'Library html2canvas tak load');
     return; 
   }
@@ -1379,15 +1376,45 @@ screenshotBtn.addEventListener('click', async () => {
   screenshotBtn.classList.add('loading');
   
   try {
-    console.log('[Screenshot] Adding screenshot-mode class');
     document.body.classList.add('screenshot-mode');
     
-    await new Promise(r => setTimeout(r, 300));
+    // Tunggu DOM repaint
+    await new Promise(r => setTimeout(r, 400));
     
     const target = document.querySelector('.table-card');
     if (!target) throw new Error('Table card tak jumpa');
     
-    console.log('[Screenshot] Starting html2canvas...');
+    // Simpan style asal untuk restore
+    const wrapper = target.querySelector('.table-wrapper');
+    const table = target.querySelector('table');
+    const originalWrapperStyle = {};
+    const originalTableStyle = {};
+    
+    if (wrapper) {
+      ['overflow', 'maxHeight', 'height', 'width'].forEach(prop => {
+        originalWrapperStyle[prop] = wrapper.style[prop];
+      });
+      wrapper.style.overflow = 'visible';
+      wrapper.style.maxHeight = 'none';
+      wrapper.style.height = 'auto';
+      wrapper.style.width = 'auto';
+    }
+    
+    if (table) {
+      ['minWidth', 'width'].forEach(prop => {
+        originalTableStyle[prop] = table.style[prop];
+      });
+      table.style.minWidth = 'auto';
+      table.style.width = 'auto';
+    }
+    
+    // Tunggu render
+    await new Promise(r => setTimeout(r, 300));
+    
+    const fullWidth = target.scrollWidth;
+    const fullHeight = target.scrollHeight;
+    console.log('[Screenshot] Target size:', fullWidth, 'x', fullHeight);
+    
     const canvas = await html2canvas(target, {
       backgroundColor: '#ffffff',
       scale: 2,
@@ -1396,10 +1423,25 @@ screenshotBtn.addEventListener('click', async () => {
       allowTaint: true,
       scrollX: 0,
       scrollY: 0,
-      windowWidth: target.scrollWidth,
-      windowHeight: target.scrollHeight
+      windowWidth: fullWidth,
+      windowHeight: fullHeight,
+      width: fullWidth,
+      height: fullHeight
     });
-    console.log('[Screenshot] Done:', canvas.width, 'x', canvas.height);
+    
+    console.log('[Screenshot] Canvas size:', canvas.width, 'x', canvas.height);
+    
+    // Restore
+    if (wrapper) {
+      Object.keys(originalWrapperStyle).forEach(prop => {
+        wrapper.style[prop] = originalWrapperStyle[prop];
+      });
+    }
+    if (table) {
+      Object.keys(originalTableStyle).forEach(prop => {
+        table.style[prop] = originalTableStyle[prop];
+      });
+    }
     
     document.body.classList.remove('screenshot-mode');
     
@@ -1483,13 +1525,10 @@ function refreshSelectionAfterRender() {
   updateBulkCount();
 }
 
-// ═══════════════════════════════════════════════════════
-// ATTACH CELL EVENTS — FIX MOBILE TOUCH + CONTEXT MENU
-// ═══════════════════════════════════════════════════════
+// ATTACH CELL EVENTS
 function attachCellEvents() {
   document.querySelectorAll('td.cell').forEach(cell => {
     if (IS_MOBILE) {
-      // ═══ MOBILE ═══
       let longPressTimer = null;
       let touchStartX = 0;
       let touchStartY = 0;
@@ -1497,7 +1536,6 @@ function attachCellEvents() {
       let didLongPress = false;
       let touchMoved = false;
 
-      // Tap → edit
       cell.addEventListener('click', (e) => {
         if (didLongPress) { didLongPress = false; return; }
         if (isScrolling || touchMoved) return;
@@ -1553,8 +1591,6 @@ function attachCellEvents() {
       });
 
     } else {
-      // ═══ DESKTOP ═══
-      // Prevent text selection bila drag
       cell.addEventListener('mousedown', (e) => {
         if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
           e.preventDefault();
@@ -1621,7 +1657,6 @@ function showContextMenu(x, y, cell) {
 }
 function hideContextMenu() { contextMenu.classList.remove('active'); }
 
-// ═══ Tutup context menu bila klik luar ═══
 document.addEventListener('mousedown', (e) => {
   if (contextMenu.contains(e.target)) return;
   if (e.target.closest('td.cell')) return;
@@ -1816,17 +1851,13 @@ function openBulkEditModal() {
   });
 }
 
-// ═══════════════════════════════════════════════════════
 // KEYBOARD NAVIGATION
-// ═══════════════════════════════════════════════════════
-
 function setFocusedCell(cell) {
   document.querySelectorAll('td.cell.focused').forEach(c => c.classList.remove('focused'));
   if (cell) {
     focusedCell = cell;
     cell.classList.add('focused');
     cell.setAttribute('tabindex', '0');
-    // PENTING: bagi browser tahu cell ni active untuk keyboard events
     if (!IS_MOBILE) {
       cell.focus();
     }
@@ -2027,7 +2058,6 @@ function attachKeyboardNav() {
 function initKeyboardNav() {
   if (IS_MOBILE) return;
   
-  // Set tabindex pada semua cell
   document.querySelectorAll('td.cell').forEach(cell => {
     if (!cell.hasAttribute('tabindex')) {
       cell.setAttribute('tabindex', '0');
@@ -2041,13 +2071,11 @@ function initKeyboardNav() {
     const activeModal = document.querySelector('.modal-overlay.active');
     if (activeModal) return;
     
-    // Escape tutup context menu
     if (e.key === 'Escape' && contextMenu.classList.contains('active')) {
       hideContextMenu();
       return;
     }
     
-    // Belum ada focused cell — start dari cell pertama
     if (!focusedCell) {
       if (['ArrowDown', 'ArrowRight', 'Tab'].includes(e.key)) {
         e.preventDefault();
@@ -2060,7 +2088,6 @@ function initKeyboardNav() {
     const isCtrl = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
     
-    // Arrow navigation
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (isShift) extendSelection('up'); else moveFocus('up');
@@ -2087,7 +2114,6 @@ function initKeyboardNav() {
       return;
     }
     
-    // Edit
     if (e.key === 'Enter') {
       e.preventDefault();
       if (isShift) moveFocus('up');
@@ -2100,7 +2126,6 @@ function initKeyboardNav() {
       return;
     }
     
-    // Home / End
     if (e.key === 'Home') {
       e.preventDefault();
       if (isCtrl) {
@@ -2122,7 +2147,6 @@ function initKeyboardNav() {
       return;
     }
     
-    // Copy / Paste / Cut
     if (isCtrl && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       copyFocusedCell();
@@ -2140,26 +2164,24 @@ function initKeyboardNav() {
       return;
     }
     
-    // Delete
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       await clearFocusedCell();
       return;
     }
     
-    // Select column / row
     if (isCtrl && (e.key === 'a' || e.key === 'A')) {
       e.preventDefault();
       selectFocusedColumn();
       return;
     }
+    
     if (isCtrl && e.key === ' ') {
       e.preventDefault();
       selectFocusedRow();
       return;
     }
     
-    // Escape
     if (e.key === 'Escape') {
       clearSelection();
       setFocusedCell(null);
