@@ -14,7 +14,7 @@ Dashboard interaktif untuk team QA update task harian — Office, WFH, AL, MC, P
 ### 📊 Core Features
 - **Weekly Roster View** — Papar task minggu semasa (Isnin → Ahad)
 - **Auto-detect Minggu** — Auto update bila minggu bertukar
-- **Multiple Task Types** — Office, WFH, AL, MC, Public Holiday, Outstation
+- **Multiple Task Types** — Office, WFH, AL, MC, Outstation
 - **Color-coded Cells** — Setiap jenis task ada warna sendiri
 - **Highlight Hari Ini** — Kolum hari ni di-highlight khas
 - **Weekend Auto-highlight** — Sabtu & Ahad kuning automatik
